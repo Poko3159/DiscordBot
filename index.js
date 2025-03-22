@@ -54,6 +54,9 @@ async function getPlayerInfo(playerTag) {
             return { error: "COC API key is missing. Please check your environment variables." };
         }
         if (error.response?.status === 403) {
+            if (error.response?.data?.reason === 'accessDenied.invalidIp') {
+                return { error: `IP Address not authorized. Please whitelist IP ${error.response?.data?.message.match(/\d+\.\d+\.\d+\.\d+/)?.[0] || 'unknown'} in your COC Developer portal.` };
+            }
             return { error: "Invalid API key. Please check your COC API key." };
         }
         if (error.response?.status === 404) {
