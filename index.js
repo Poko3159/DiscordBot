@@ -34,11 +34,24 @@ const COC_BASE_URL = "https://api.clashofclans.com/v1";
 async function getPlayerInfo(playerTag) {
     try {
         const response = await axios.get(`${COC_BASE_URL}/players/%23${playerTag}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+            headers: { 
+                'Authorization': `Bearer ${COC_API_KEY}`,
+                'Accept': 'application/json'
+            }
         });
         return response.data;
     } catch (error) {
-        return { error: "Invalid player tag or API issue." };
+        console.error('COC API Error:', error.response?.data || error.message);
+        if (!COC_API_KEY) {
+            return { error: "COC API key is missing. Please check your environment variables." };
+        }
+        if (error.response?.status === 403) {
+            return { error: "Invalid API key. Please check your COC API key." };
+        }
+        if (error.response?.status === 404) {
+            return { error: "Player not found. Please check the tag." };
+        }
+        return { error: `API Error: ${error.response?.data?.message || error.message}` };
     }
 }
 
