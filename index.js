@@ -94,7 +94,11 @@ client.on("messageCreate", async (msg) => {
         return msg.reply(`⚔️ **Clan War Status**\n🏰 **Opponent:** ${warData.opponent.name}\n🔥 **War State:** ${warData.state}\n🎯 **Stars Earned:** ${warData.clan.stars}\n⚔️ **Attacks Used:** ${warData.clan.attacks}/${warData.teamSize * 2}\n🏆 **Your Clan Stars:** ${warData.clan.stars}\n🎖 **Opponent Stars:** ${warData.opponent.stars}`);
     }
 
-    return msg.reply("Invalid command. Use `!player`, `!clan`, `!war`, or `!leaderboard`.");
+    if (command === "!checkurl") {
+        return msg.reply(`Your bot URL is: https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`);
+    }
+
+    return msg.reply("Invalid command. Use `!player`, `!clan`, `!war`, `!checkurl`, or `!leaderboard`.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
