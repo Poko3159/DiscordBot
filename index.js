@@ -33,10 +33,6 @@ const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
 async function getPlayerInfo(playerTag) {
     try {
-        if (!COC_API_KEY || !COC_API_KEY.startsWith('eyJ')) {
-            return { error: "Invalid COC API key format. The key should start with 'eyJ' without quotes." };
-        }
-        
         const response = await axios.get(`${COC_BASE_URL}/players/%23${playerTag}`, {
             headers: { 
                 'Authorization': `Bearer ${COC_API_KEY}`,
