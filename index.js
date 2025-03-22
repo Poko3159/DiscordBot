@@ -31,6 +31,9 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const COC_API_KEY = process.env.COC_API_KEY;
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
+// Debug log to check if API key is loaded
+console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
+
 async function getPlayerInfo(playerTag) {
     try {
         const response = await axios.get(`${COC_BASE_URL}/players/%23${playerTag}`, {
