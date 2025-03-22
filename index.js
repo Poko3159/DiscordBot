@@ -44,7 +44,12 @@ async function getPlayerInfo(playerTag) {
         });
         return response.data;
     } catch (error) {
-        console.error('COC API Error:', error.response?.data || error.message);
+        console.error('COC API Error Details:', {
+            status: error.response?.status,
+            data: error.response?.data,
+            headers: error.response?.headers,
+            message: error.message
+        });
         if (!COC_API_KEY) {
             return { error: "COC API key is missing. Please check your environment variables." };
         }
