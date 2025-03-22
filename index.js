@@ -12,7 +12,7 @@ app.listen(PORT, '0.0.0.0', () => {
 
 // Keep-alive function to prevent Replit from sleeping
 setInterval(() => {
-  require("https").get("https://discordbot.poko3159.repl.co");
+  require("https").get(`https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`);
 }, 5 * 60 * 1000); // Pings itself every 5 minutes
 
 const { Client, GatewayIntentBits } = require('discord.js');
