@@ -19,3 +19,15 @@ ignorePorts = false
 [[ports]]
 localPort = 3000
 externalPort = 80
+
+[workflows]
+runButton = "Discord Bot"
+
+[[workflows.workflow]]
+name = "Discord Bot"
+author = 40763127
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node index.js"
