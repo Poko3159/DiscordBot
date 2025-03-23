@@ -12,19 +12,12 @@ app.listen(PORT, '0.0.0.0', () => {
 
 // Keep-alive function to prevent Replit from sleeping
 app.get('/ping', (req, res) => {
-  res.send('Pong! Bot is alive.');
+  res.send('Pong!');
 });
 
-// More frequent pings (every 2 minutes)
 setInterval(() => {
-  try {
-    fetch(`https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co/ping`)
-      .then(response => response.text())
-      .catch(error => console.error('Ping error:', error));
-  } catch (error) {
-    console.error('Fetch error:', error);
-  }
-}, 2 * 60 * 1000);
+  require("http").get(`http://0.0.0.0:${PORT}/ping`);
+}, 5 * 60 * 1000); // Pings itself every 5 minutes
 
 const { Client, GatewayIntentBits } = require('discord.js');
 const OpenAI = require('openai');
