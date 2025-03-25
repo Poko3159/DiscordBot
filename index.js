@@ -52,7 +52,7 @@ async function getClanInfo(clanTag) {
     }
 }
 
-// Fetch top global clans (FIXED ENDPOINT)
+// Fetch top global clans
 async function getTopClans() {
     try {
         const response = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
@@ -106,6 +106,24 @@ client.on("messageCreate", async (msg) => {
         return msg.reply(`🌍 **Top 5 Global Clans:**\n${leaderboard}`);
     }
 
+    if (command === "!roast") {
+        const target = args[1] ? args[1] : msg.author.username; // Target user or the sender
+        try {
+            const response = await openai.chat.completions.create({
+                model: "gpt-3.5-turbo",
+                messages: [
+                    { role: "system", content: "You are a sarcastic and humorous AI that generates funny, lighthearted roasts." },
+                    { role: "user", content: `Roast ${target} in a funny but non-offensive way.` }
+                ]
+            });
+
+            return msg.reply(response.choices[0].message.content);
+        } catch (error) {
+            console.error("OpenAI API Error:", error);
+            return msg.reply("❌ Error: Couldn't generate a roast. Maybe I'm too nice? 😇");
+        }
+    }
+
     if (command === "!ask") {
         if (args.length < 2) return msg.reply("Please provide a question.");
         const question = args.slice(1).join(" ");
@@ -150,7 +168,7 @@ client.on("messageCreate", async (msg) => {
         return msg.reply(`You chose **${userChoice}**. I chose **${botChoice}**. ${result}`);
     }
 
-    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!ask`, or `!rps`.");
+    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!roast`, `!ask`, or `!rps`.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
