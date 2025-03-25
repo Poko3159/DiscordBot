@@ -38,20 +38,6 @@ async function getPlayerInfo(playerTag) {
     }
 }
 
-// OpenAI Chat Function
-async function askOpenAI(question) {
-    try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4",
-            messages: [{ role: "user", content: question }],
-        });
-        return response.choices[0].message.content;
-    } catch (error) {
-        console.error("OpenAI API Error:", error.response?.data || error.message);
-        return "Error processing your request. Try again later.";
-    }
-}
-
 client.on('ready', () => {
     console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 });
@@ -63,7 +49,7 @@ client.on("messageCreate", async (msg) => {
     const command = args[0].toLowerCase();
 
     if (command === "!ping") {
-        return msg.reply("🏓 Pong! Bot is responsive.");
+        return msg.reply("🏓 Pong! The bot is online and responsive.");
     }
 
     if (command === "!player") {
@@ -76,11 +62,48 @@ client.on("messageCreate", async (msg) => {
     if (command === "!ask") {
         if (args.length < 2) return msg.reply("Please provide a question.");
         const question = args.slice(1).join(" ");
-        const answer = await askOpenAI(question);
-        return msg.reply(`🧠 **AI Response:** ${answer}`);
+
+        try {
+            const response = await openai.chat.completions.create({
+                model: "gpt-3.5-turbo",
+                messages: [{ role: "user", content: question }]
+            });
+
+            return msg.reply(response.choices[0].message.content);
+        } catch (error) {
+            console.error("OpenAI API Error:", error);
+            return msg.reply("❌ Error: Unable to process your request.");
+        }
     }
 
-    return msg.reply("Invalid command. Use `!ping`, `!ask`, `!player`, `!clan`, `!war`, or `!leaderboard`.");
+    if (command === "!rps") {
+        if (!args[1]) return msg.reply("Please choose rock, paper, or scissors! Example: `!rps rock`");
+
+        const choices = ["rock", "paper", "scissors"];
+        const userChoice = args[1].toLowerCase();
+        if (!choices.includes(userChoice)) {
+            return msg.reply("Invalid choice! Please choose rock, paper, or scissors.");
+        }
+
+        const botChoice = choices[Math.floor(Math.random() * choices.length)];
+
+        let result;
+        if (userChoice === botChoice) {
+            result = "It's a tie!";
+        } else if (
+            (userChoice === "rock" && botChoice === "scissors") ||
+            (userChoice === "paper" && botChoice === "rock") ||
+            (userChoice === "scissors" && botChoice === "paper")
+        ) {
+            result = "You win! 🎉";
+        } else {
+            result = "I win! 🤖";
+        }
+
+        return msg.reply(`You chose **${userChoice}**. I chose **${botChoice}**. ${result}`);
+    }
+
+    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!war`, `!leaderboard`, `!ask`, or `!rps`.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
