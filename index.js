@@ -9,10 +9,6 @@ app.get("/", (req, res) => {
     res.send("Bot is alive!");
 });
 
-app.get("/ping", (req, res) => {
-    res.send("Pong!");
-});
-
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on port ${PORT}`);
@@ -20,8 +16,7 @@ app.listen(PORT, "0.0.0.0", () => {
 
 // Keep-alive ping (Replace with your actual Render or Replit URL)
 setInterval(() => {
-    require("http").get(`http://0.0.0.0:${PORT}/ping`);
-    require("http").get("https://discordbot-144o.onrender.com/ping");
+    require("http").get("https://discordbot-144o.onrender.com");
 }, 5 * 60 * 1000); // Pings every 5 minutes
 
 const client = new Client({ 
@@ -84,9 +79,9 @@ async function getTopClans() {
         });
         const topClans = response.data.items.slice(0, 5);
 
-        let leaderboard = "\ud83c\udf0d **Top 5 Global Clans** \ud83c\udf0d\n";
+        let leaderboard = "🌍 **Top 5 Global Clans** 🌍\n";
         topClans.forEach((clan, index) => {
-            leaderboard += `\`${index + 1}.\` **${clan.name}** - \ud83c\udfc6 ${clan.clanPoints} points (Level ${clan.clanLevel})\n`;
+            leaderboard += `\`${index + 1}.\` **${clan.name}** - 🏆 ${clan.clanPoints} points (Level ${clan.clanLevel})\n`;
         });
 
         return leaderboard;
@@ -105,6 +100,10 @@ client.on("messageCreate", async (msg) => {
 
     const args = msg.content.split(" ");
     const command = args[0].toLowerCase();
+
+    if (command === "!ping") {
+        return msg.reply("🏓 Pong! Bot is active.");
+    }
 
     if (command === "!player") {
         if (!args[1]) return msg.reply("Please provide a player tag.");
@@ -132,7 +131,7 @@ client.on("messageCreate", async (msg) => {
         return msg.reply(leaderboard);
     }
 
-    return msg.reply("Invalid command. Use `!player`, `!clan`, `!war`, or `!leaderboard`.");
+    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!war`, or `!leaderboard`.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
