@@ -48,6 +48,10 @@ client.on("messageCreate", async (msg) => {
     const args = msg.content.split(" ");
     const command = args[0].toLowerCase();
 
+    if (command === "!ping") {
+        return msg.reply("🏓 Pong! Bot is responsive.");
+    }
+
     if (command === "!player") {
         if (!args[1]) return msg.reply("Please provide a player tag.");
         const playerData = await getPlayerInfo(args[1]);
@@ -55,7 +59,7 @@ client.on("messageCreate", async (msg) => {
         return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
     }
 
-    return msg.reply("Invalid command. Use `!player`, `!clan`, `!war`, or `!leaderboard`.");
+    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!war`, or `!leaderboard`.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
