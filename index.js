@@ -14,11 +14,6 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on port ${PORT}`);
 });
 
-// Keep-alive ping (Replace with your actual Render or Replit URL)
-setInterval(() => {
-    require("http").get("https://discordbot-144o.onrender.com");
-}, 5 * 60 * 1000); // Pings every 5 minutes
-
 const client = new Client({ 
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
 });
@@ -43,54 +38,6 @@ async function getPlayerInfo(playerTag) {
     }
 }
 
-// Fetch clan info
-async function getClanInfo(clanTag) {
-    try {
-        const sanitizedTag = clanTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data;
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching clan data. Check the tag or API status." };
-    }
-}
-
-// Fetch war info
-async function getWarInfo(clanTag) {
-    try {
-        const sanitizedTag = clanTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/currentwar`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data;
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching war data. Check the tag or API status." };
-    }
-}
-
-// Fetch top global clans
-async function getTopClans() {
-    try {
-        const response = await axios.get(`${COC_BASE_URL}/rankings/global/clans`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        const topClans = response.data.items.slice(0, 5);
-
-        let leaderboard = "🌍 **Top 5 Global Clans** 🌍\n";
-        topClans.forEach((clan, index) => {
-            leaderboard += `\`${index + 1}.\` **${clan.name}** - 🏆 ${clan.clanPoints} points (Level ${clan.clanLevel})\n`;
-        });
-
-        return leaderboard;
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return "Could not fetch leaderboard. Try again later.";
-    }
-}
-
 client.on('ready', () => {
     console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 });
@@ -101,37 +48,14 @@ client.on("messageCreate", async (msg) => {
     const args = msg.content.split(" ");
     const command = args[0].toLowerCase();
 
-    if (command === "!ping") {
-        return msg.reply("🏓 Pong! Bot is active.");
-    }
-
     if (command === "!player") {
         if (!args[1]) return msg.reply("Please provide a player tag.");
         const playerData = await getPlayerInfo(args[1]);
         if (playerData.error) return msg.reply(`❌ Error: ${playerData.error}`);
-        return msg.reply(`🏆 **${playerData.name}** - Level: ${playerData.expLevel}, Trophies: ${playerData.trophies}`);
+        return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
     }
 
-    if (command === "!clan") {
-        if (!args[1]) return msg.reply("Please provide a clan tag.");
-        const clanData = await getClanInfo(args[1]);
-        if (clanData.error) return msg.reply(`❌ Error: ${clanData.error}`);
-        return msg.reply(`🏰 **${clanData.name}** - Level: ${clanData.clanLevel}, Members: ${clanData.members}/50`);
-    }
-
-    if (command === "!war") {
-        if (!args[1]) return msg.reply("Please provide a clan tag.");
-        const warData = await getWarInfo(args[1]);
-        if (warData.error) return msg.reply(`❌ Error: ${warData.error}`);
-        return msg.reply(`⚔️ **Clan War Status**\n🏰 **Opponent:** ${warData.opponent.name}\n🔥 **War State:** ${warData.state}`);
-    }
-
-    if (command === "!leaderboard") {
-        const leaderboard = await getTopClans();
-        return msg.reply(leaderboard);
-    }
-
-    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!war`, or `!leaderboard`.");
+    return msg.reply("Invalid command. Use `!player`, `!clan`, `!war`, or `!leaderboard`.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
