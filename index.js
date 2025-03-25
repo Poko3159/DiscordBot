@@ -1,29 +1,29 @@
 const express = require("express");
 const app = express();
-const { Client, GatewayIntentBits } = require('discord.js');
-const OpenAI = require('openai');
-const axios = require('axios');
+const { Client, GatewayIntentBits } = require("discord.js");
+const OpenAI = require("openai");
+const axios = require("axios");
 
 // Express server for uptime monitoring
 app.get("/", (req, res) => {
     res.send("Bot is alive!");
 });
 
-app.get('/ping', (req, res) => {
-    res.send('Pong!');
+app.get("/ping", (req, res) => {
+    res.send("Pong!");
 });
 
-// Keep-alive ping (replace with your actual Render URL)
-setInterval(() => {
-    require("http").get("https://discordbot-144o.onrender.com/ping");
-}, 5 * 60 * 1000); // Every 5 minutes
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on port ${PORT}`);
 });
 
-// Discord bot setup
+// Keep-alive ping (Replace with your actual Render or Replit URL)
+setInterval(() => {
+    require("http").get(`http://0.0.0.0:${PORT}/ping`);
+    require("http").get("https://discordbot-144o.onrender.com/ping");
+}, 5 * 60 * 1000); // Pings every 5 minutes
+
 const client = new Client({ 
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
 });
@@ -32,7 +32,6 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const COC_API_KEY = process.env.COC_API_KEY;
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
-// Debug log to check API key
 console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
 
 // Fetch player info
@@ -58,7 +57,8 @@ async function getClanInfo(clanTag) {
         });
         return response.data;
     } catch (error) {
-        return { error: "Invalid clan tag or API issue." };
+        console.error("COC API Error:", error.response?.data || error.message);
+        return { error: "Error fetching clan data. Check the tag or API status." };
     }
 }
 
@@ -71,7 +71,8 @@ async function getWarInfo(clanTag) {
         });
         return response.data;
     } catch (error) {
-        return { error: "War data unavailable or incorrect clan tag." };
+        console.error("COC API Error:", error.response?.data || error.message);
+        return { error: "Error fetching war data. Check the tag or API status." };
     }
 }
 
@@ -81,12 +82,11 @@ async function getTopClans() {
         const response = await axios.get(`${COC_BASE_URL}/rankings/global/clans`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
+        const topClans = response.data.items.slice(0, 5);
 
-        const topClans = response.data.items.slice(0, 5); // Get top 5 clans
-
-        let leaderboard = "🌍 **Top 5 Global Clans** 🌍\n";
+        let leaderboard = "\ud83c\udf0d **Top 5 Global Clans** \ud83c\udf0d\n";
         topClans.forEach((clan, index) => {
-            leaderboard += `\`${index + 1}.\` **${clan.name}** - 🏆 ${clan.clanPoints} points (Level ${clan.clanLevel})\n`;
+            leaderboard += `\`${index + 1}.\` **${clan.name}** - \ud83c\udfc6 ${clan.clanPoints} points (Level ${clan.clanLevel})\n`;
         });
 
         return leaderboard;
@@ -96,39 +96,35 @@ async function getTopClans() {
     }
 }
 
-// Bot ready event
 client.on('ready', () => {
     console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 });
 
-// Command handler
 client.on("messageCreate", async (msg) => {
     if (msg.author.bot || !msg.content.startsWith("!")) return;
 
     const args = msg.content.split(" ");
     const command = args[0].toLowerCase();
-    const param = args[1]?.replace("#", "");
 
     if (command === "!player") {
-        if (!param) return msg.reply("Provide a valid player tag (e.g., `!player #ABC123`).");
-        const playerData = await getPlayerInfo(param);
-        if (playerData.error) return msg.reply(playerData.error);
-        return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
+        if (!args[1]) return msg.reply("Please provide a player tag.");
+        const playerData = await getPlayerInfo(args[1]);
+        if (playerData.error) return msg.reply(`❌ Error: ${playerData.error}`);
+        return msg.reply(`🏆 **${playerData.name}** - Level: ${playerData.expLevel}, Trophies: ${playerData.trophies}`);
     }
 
     if (command === "!clan") {
-        if (!param) return msg.reply("Provide a valid clan tag (e.g., `!clan #ABC123`).");
-        const clanData = await getClanInfo(param);
-        if (clanData.error) return msg.reply(clanData.error);
-        return msg.reply(`🏰 **Clan Name:** ${clanData.name}\n📛 **Clan Tag:** ${clanData.tag}\n🔥 **Clan Level:** ${clanData.clanLevel}\n🛡️ **War Wins:** ${clanData.warWins}\n🏆 **Total Points:** ${clanData.clanPoints}\n👥 **Members:** ${clanData.members}/50`);
+        if (!args[1]) return msg.reply("Please provide a clan tag.");
+        const clanData = await getClanInfo(args[1]);
+        if (clanData.error) return msg.reply(`❌ Error: ${clanData.error}`);
+        return msg.reply(`🏰 **${clanData.name}** - Level: ${clanData.clanLevel}, Members: ${clanData.members}/50`);
     }
 
     if (command === "!war") {
-        if (!param) return msg.reply("Provide a valid clan tag (e.g., `!war #ABC123`).");
-        const warData = await getWarInfo(param);
-        if (warData.error) return msg.reply(warData.error);
-        if (warData.state === "notInWar") return msg.reply("This clan is not currently in a war.");
-        return msg.reply(`⚔️ **Clan War Status**\n🏰 **Opponent:** ${warData.opponent.name}\n🔥 **War State:** ${warData.state}\n🎯 **Stars Earned:** ${warData.clan.stars}\n⚔️ **Attacks Used:** ${warData.clan.attacks}/${warData.teamSize * 2}\n🏆 **Your Clan Stars:** ${warData.clan.stars}\n🎖 **Opponent Stars:** ${warData.opponent.stars}`);
+        if (!args[1]) return msg.reply("Please provide a clan tag.");
+        const warData = await getWarInfo(args[1]);
+        if (warData.error) return msg.reply(`❌ Error: ${warData.error}`);
+        return msg.reply(`⚔️ **Clan War Status**\n🏰 **Opponent:** ${warData.opponent.name}\n🔥 **War State:** ${warData.state}`);
     }
 
     if (command === "!leaderboard") {
@@ -139,5 +135,4 @@ client.on("messageCreate", async (msg) => {
     return msg.reply("Invalid command. Use `!player`, `!clan`, `!war`, or `!leaderboard`.");
 });
 
-// Login bot
 client.login(process.env.DISCORD_TOKEN);
