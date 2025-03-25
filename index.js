@@ -38,6 +38,33 @@ async function getPlayerInfo(playerTag) {
     }
 }
 
+// Fetch clan info
+async function getClanInfo(clanTag) {
+    try {
+        const sanitizedTag = clanTag.replace("#", "");
+        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}`, {
+            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        });
+        return response.data;
+    } catch (error) {
+        console.error("COC API Error:", error.response?.data || error.message);
+        return { error: "Error fetching clan data. Check the tag or API status." };
+    }
+}
+
+// Fetch top global clans
+async function getTopClans() {
+    try {
+        const response = await axios.get(`${COC_BASE_URL}/rankings/global/clans`, {
+            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        });
+        return response.data.items;
+    } catch (error) {
+        console.error("COC API Error:", error.response?.data || error.message);
+        return { error: "Error fetching global leaderboard. API might be down." };
+    }
+}
+
 client.on('ready', () => {
     console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 });
@@ -57,6 +84,26 @@ client.on("messageCreate", async (msg) => {
         const playerData = await getPlayerInfo(args[1]);
         if (playerData.error) return msg.reply(`❌ Error: ${playerData.error}`);
         return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
+    }
+
+    if (command === "!clan") {
+        if (!args[1]) return msg.reply("Please provide a clan tag.");
+        const clanData = await getClanInfo(args[1]);
+        if (clanData.error) return msg.reply(`❌ Error: ${clanData.error}`);
+        
+        return msg.reply(`🏰 **Clan Name:** ${clanData.name}\n🏆 **Clan Level:** ${clanData.clanLevel}\n🎖️ **Clan Points:** ${clanData.clanPoints}\n🔥 **War Win Streak:** ${clanData.warWinStreak}\n⚔️ **War Wins:** ${clanData.warWins}`);
+    }
+
+    if (command === "!leaderboard") {
+        const topClans = await getTopClans();
+        if (topClans.error) return msg.reply(`❌ Error: ${topClans.error}`);
+
+        const leaderboard = topClans
+            .slice(0, 5)
+            .map((clan, index) => `${index + 1}. **${clan.name}** - 🏆 ${clan.clanPoints} Points - ${clan.members} Members`)
+            .join("\n");
+
+        return msg.reply(`🌍 **Top 5 Global Clans:**\n${leaderboard}`);
     }
 
     if (command === "!ask") {
