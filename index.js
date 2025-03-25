@@ -38,6 +38,20 @@ async function getPlayerInfo(playerTag) {
     }
 }
 
+// OpenAI Chat Function
+async function askOpenAI(question) {
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4",
+            messages: [{ role: "user", content: question }],
+        });
+        return response.choices[0].message.content;
+    } catch (error) {
+        console.error("OpenAI API Error:", error.response?.data || error.message);
+        return "Error processing your request. Try again later.";
+    }
+}
+
 client.on('ready', () => {
     console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 });
@@ -59,7 +73,14 @@ client.on("messageCreate", async (msg) => {
         return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
     }
 
-    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!war`, or `!leaderboard`.");
+    if (command === "!ask") {
+        if (args.length < 2) return msg.reply("Please provide a question.");
+        const question = args.slice(1).join(" ");
+        const answer = await askOpenAI(question);
+        return msg.reply(`🧠 **AI Response:** ${answer}`);
+    }
+
+    return msg.reply("Invalid command. Use `!ping`, `!ask`, `!player`, `!clan`, `!war`, or `!leaderboard`.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
