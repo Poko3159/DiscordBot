@@ -52,16 +52,16 @@ async function getClanInfo(clanTag) {
     }
 }
 
-// Fetch top global clans
+// Fetch top global clans (FIXED ENDPOINT)
 async function getTopClans() {
     try {
-        const response = await axios.get(`${COC_BASE_URL}/rankings/global/clans`, {
+        const response = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return response.data.items;
     } catch (error) {
         console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching global leaderboard. API might be down." };
+        return { error: "Error fetching global leaderboard. API might be down or the endpoint is incorrect." };
     }
 }
 
@@ -144,13 +144,13 @@ client.on("messageCreate", async (msg) => {
         ) {
             result = "You win! 🎉";
         } else {
-            result = "I win! 🤖";
+            result = "I win! 👻";
         }
 
         return msg.reply(`You chose **${userChoice}**. I chose **${botChoice}**. ${result}`);
     }
 
-    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!war`, `!leaderboard`, `!ask`, or `!rps`.");
+    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!ask`, or `!rps`.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
