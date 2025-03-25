@@ -1,28 +1,29 @@
 const express = require("express");
 const app = express();
-
-app.get("/", (req, res) => {
-  res.send("Bot is alive!");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running on port ${PORT}`);
-});
-
-// Keep-alive function to prevent Replit from sleeping
-app.get('/ping', (req, res) => {
-  res.send('Pong!');
-});
-
-setInterval(() => {
-  require("http").get(`http://0.0.0.0:${PORT}/ping`);
-}, 5 * 60 * 1000); // Pings itself every 5 minutes
-
 const { Client, GatewayIntentBits } = require('discord.js');
 const OpenAI = require('openai');
 const axios = require('axios');
 
+// Express server for uptime monitoring
+app.get("/", (req, res) => {
+    res.send("Bot is alive!");
+});
+
+app.get('/ping', (req, res) => {
+    res.send('Pong!');
+});
+
+// Keep-alive ping (replace with your actual Render URL)
+setInterval(() => {
+    require("http").get("https://discordbot-144o.onrender.com/ping");
+}, 5 * 60 * 1000); // Every 5 minutes
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
+
+// Discord bot setup
 const client = new Client({ 
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
 });
@@ -31,44 +32,28 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const COC_API_KEY = process.env.COC_API_KEY;
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
-// Debug log to check if API key is loaded
+// Debug log to check API key
 console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
 
+// Fetch player info
 async function getPlayerInfo(playerTag) {
     try {
-        const response = await axios.get(`${COC_BASE_URL}/players/%23${playerTag}`, {
-            headers: { 
-                'Authorization': `Bearer ${COC_API_KEY}`,
-                'Accept': 'application/json'
-            }
+        const sanitizedTag = playerTag.replace("#", "");
+        const response = await axios.get(`${COC_BASE_URL}/players/%23${sanitizedTag}`, {
+            headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return response.data;
     } catch (error) {
-        console.error('COC API Error Details:', {
-            status: error.response?.status,
-            data: error.response?.data,
-            headers: error.response?.headers,
-            message: error.message
-        });
-        if (!COC_API_KEY) {
-            return { error: "COC API key is missing. Please check your environment variables." };
-        }
-        if (error.response?.status === 403) {
-            if (error.response?.data?.reason === 'accessDenied.invalidIp') {
-                return { error: `IP Address not authorized. Please whitelist IP ${error.response?.data?.message.match(/\d+\.\d+\.\d+\.\d+/)?.[0] || 'unknown'} in your COC Developer portal.` };
-            }
-            return { error: "Invalid API key. Please check your COC API key." };
-        }
-        if (error.response?.status === 404) {
-            return { error: "Player not found. Please check the tag." };
-        }
-        return { error: `API Error: ${error.response?.data?.message || error.message}` };
+        console.error("COC API Error:", error.response?.data || error.message);
+        return { error: "Error fetching player data. Check the tag or API status." };
     }
 }
 
+// Fetch clan info
 async function getClanInfo(clanTag) {
     try {
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${clanTag}`, {
+        const sanitizedTag = clanTag.replace("#", "");
+        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return response.data;
@@ -77,9 +62,11 @@ async function getClanInfo(clanTag) {
     }
 }
 
+// Fetch war info
 async function getWarInfo(clanTag) {
     try {
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${clanTag}/currentwar`, {
+        const sanitizedTag = clanTag.replace("#", "");
+        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/currentwar`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return response.data;
@@ -88,13 +75,35 @@ async function getWarInfo(clanTag) {
     }
 }
 
+// Fetch top global clans
+async function getTopClans() {
+    try {
+        const response = await axios.get(`${COC_BASE_URL}/rankings/global/clans`, {
+            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        });
+
+        const topClans = response.data.items.slice(0, 5); // Get top 5 clans
+
+        let leaderboard = "🌍 **Top 5 Global Clans** 🌍\n";
+        topClans.forEach((clan, index) => {
+            leaderboard += `\`${index + 1}.\` **${clan.name}** - 🏆 ${clan.clanPoints} points (Level ${clan.clanLevel})\n`;
+        });
+
+        return leaderboard;
+    } catch (error) {
+        console.error("COC API Error:", error.response?.data || error.message);
+        return "Could not fetch leaderboard. Try again later.";
+    }
+}
+
+// Bot ready event
 client.on('ready', () => {
-    console.log(`Logged in as ${client.user.tag}!`);
+    console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 });
 
+// Command handler
 client.on("messageCreate", async (msg) => {
-    if (msg.author.bot) return;
-    if (!msg.content.startsWith("!")) return; // Only respond to commands starting with '!'
+    if (msg.author.bot || !msg.content.startsWith("!")) return;
 
     const args = msg.content.split(" ");
     const command = args[0].toLowerCase();
@@ -122,11 +131,13 @@ client.on("messageCreate", async (msg) => {
         return msg.reply(`⚔️ **Clan War Status**\n🏰 **Opponent:** ${warData.opponent.name}\n🔥 **War State:** ${warData.state}\n🎯 **Stars Earned:** ${warData.clan.stars}\n⚔️ **Attacks Used:** ${warData.clan.attacks}/${warData.teamSize * 2}\n🏆 **Your Clan Stars:** ${warData.clan.stars}\n🎖 **Opponent Stars:** ${warData.opponent.stars}`);
     }
 
-    if (command === "!checkurl") {
-        return msg.reply(`Your bot URL is: https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`);
+    if (command === "!leaderboard") {
+        const leaderboard = await getTopClans();
+        return msg.reply(leaderboard);
     }
 
-    return msg.reply("Invalid command. Use `!player`, `!clan`, `!war`, `!checkurl`, or `!leaderboard`.");
+    return msg.reply("Invalid command. Use `!player`, `!clan`, `!war`, or `!leaderboard`.");
 });
 
+// Login bot
 client.login(process.env.DISCORD_TOKEN);
