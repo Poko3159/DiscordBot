@@ -1,6 +1,6 @@
 const express = require("express");
 const app = express();
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
 const OpenAI = require("openai");
 const axios = require("axios");
 
@@ -33,8 +33,7 @@ async function getPlayerInfo(playerTag) {
         });
         return response.data;
     } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching player data. Check the tag or API status." };
+        return { error: "Error fetching player data." };
     }
 }
 
@@ -47,21 +46,66 @@ async function getClanInfo(clanTag) {
         });
         return response.data;
     } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching clan data. Check the tag or API status." };
+        return { error: "Error fetching clan data." };
     }
 }
 
-// Fetch top global clans
+// Fetch top 5 global clans
 async function getTopClans() {
     try {
         const response = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
-        return response.data.items;
+        return response.data.items.slice(0, 5);
     } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching global leaderboard. API might be down or the endpoint is incorrect." };
+        return { error: "Error fetching global leaderboard." };
+    }
+}
+
+// Fetch current war details
+async function getCurrentWar(clanTag) {
+    try {
+        const sanitizedTag = clanTag.replace("#", "");
+        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/currentwar`, {
+            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        });
+        if (response.data.state !== "warInProgress" && response.data.state !== "preparation") {
+            return { error: "No active war currently." };
+        }
+        return {
+            clan1: response.data.clan.name,
+            clan2: response.data.opponent.name
+        };
+    } catch (error) {
+        return { error: "Error fetching war data." };
+    }
+}
+
+// Generate war slogan using GPT-4 Turbo
+async function generateWarSlogan(clan1, clan2) {
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4-turbo",
+            messages: [{ role: "user", content: `Create an epic war slogan for a Clash of Clans battle between ${clan1} and ${clan2}.` }]
+        });
+        return response.choices[0].message.content;
+    } catch (error) {
+        return "An epic battle is about to begin!";
+    }
+}
+
+// Generate battle poster using DALL·E
+async function generateWarPoster(clan1, clan2) {
+    try {
+        const response = await openai.images.generate({
+            model: "dall-e-3",
+            prompt: `Epic battle scene between two powerful Clash of Clans clans, ${clan1} and ${clan2}, medieval fantasy war, fire, banners, warriors charging.`,
+            n: 1,
+            size: "1024x1024"
+        });
+        return response.data[0].url;
+    } catch (error) {
+        return null;
     }
 }
 
@@ -83,14 +127,22 @@ client.on("messageCreate", async (msg) => {
         if (!args[1]) return msg.reply("Please provide a player tag.");
         const playerData = await getPlayerInfo(args[1]);
         if (playerData.error) return msg.reply(`❌ Error: ${playerData.error}`);
-        return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
+        return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}`);
     }
 
     if (command === "!clan") {
         if (!args[1]) return msg.reply("Please provide a clan tag.");
         const clanData = await getClanInfo(args[1]);
         if (clanData.error) return msg.reply(`❌ Error: ${clanData.error}`);
-        return msg.reply(`🏰 **Clan Name:** ${clanData.name}\n🏆 **Clan Level:** ${clanData.clanLevel}\n🎖️ **Clan Points:** ${clanData.clanPoints}\n🔥 **War Win Streak:** ${clanData.warWinStreak}\n⚔️ **War Wins:** ${clanData.warWins}`);
+        return msg.reply(`🏰 **Clan Name:** ${clanData.name}\n🏆 **Clan Level:** ${clanData.clanLevel}`);
+    }
+
+    if (command === "!leaderboard") {
+        const topClans = await getTopClans();
+        if (topClans.error) return msg.reply(`❌ ${topClans.error}`);
+        
+        const leaderboard = topClans.map((clan, index) => `${index + 1}. **${clan.name}** - 🏆 ${clan.clanPoints} Points`).join("\n");
+        return msg.reply(`🌍 **Top 5 Global Clans:**\n${leaderboard}`);
     }
 
     if (command === "!roast") {
@@ -99,33 +151,50 @@ client.on("messageCreate", async (msg) => {
             const response = await openai.chat.completions.create({
                 model: "gpt-4-turbo",
                 messages: [
-                    { role: "system", content: "You are a sarcastic and humorous AI that generates funny, lighthearted roasts." },
+                    { role: "system", content: "You are a sarcastic AI that generates funny, lighthearted roasts." },
                     { role: "user", content: `Roast ${target} in a funny but non-offensive way.` }
                 ]
             });
             return msg.reply(response.choices[0].message.content);
         } catch (error) {
-            console.error("OpenAI API Error:", error);
-            return msg.reply("❌ Error: Couldn't generate a roast. Maybe I'm too nice? 😇");
+            return msg.reply("❌ Error: Couldn't generate a roast.");
         }
     }
 
-    if (command === "!ask") {
-        if (args.length < 2) return msg.reply("Please provide a question.");
-        const question = args.slice(1).join(" ");
-        try {
-            const response = await openai.chat.completions.create({
-                model: "gpt-4-turbo",
-                messages: [{ role: "user", content: question }]
-            });
-            return msg.reply(response.choices[0].message.content);
-        } catch (error) {
-            console.error("OpenAI API Error:", error);
-            return msg.reply("❌ Error: Unable to process your request.");
+    if (command === "!rps") {
+        const choices = ["rock", "paper", "scissors"];
+        const userChoice = args[1]?.toLowerCase();
+        if (!choices.includes(userChoice)) {
+            return msg.reply("Please choose rock, paper, or scissors. Example: `!rps rock`");
         }
+        const botChoice = choices[Math.floor(Math.random() * choices.length)];
+        const result = userChoice === botChoice 
+            ? "It's a tie!" 
+            : (userChoice === "rock" && botChoice === "scissors") || (userChoice === "scissors" && botChoice === "paper") || (userChoice === "paper" && botChoice === "rock") 
+            ? "You win! 🎉" 
+            : "I win! 😈";
+        return msg.reply(`You chose **${userChoice}**. I chose **${botChoice}**. ${result}`);
     }
 
-    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!roast`, `!ask`, or `!rps`.");
+    if (command === "!poster") {
+        const clanTag = process.env.CLAN_TAG;
+        const warData = await getCurrentWar(clanTag);
+        if (warData.error) return msg.reply(`❌ ${warData.error}`);
+        
+        const slogan = await generateWarSlogan(warData.clan1, warData.clan2);
+        const imageUrl = await generateWarPoster(warData.clan1, warData.clan2);
+
+        const embed = new EmbedBuilder()
+            .setTitle("⚔️ CLAN WAR ALERT! ⚔️")
+            .setDescription(slogan)
+            .setColor(0xff0000);
+        
+        if (imageUrl) embed.setImage(imageUrl);
+        
+        return msg.channel.send({ embeds: [embed] });
+    }
+
+    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!poster`, `!roast`, or `!rps`.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
