@@ -24,7 +24,6 @@ const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
 console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
 
-// Fetch player info
 async function getPlayerInfo(playerTag) {
     try {
         const sanitizedTag = playerTag.replace("#", "");
@@ -33,11 +32,11 @@ async function getPlayerInfo(playerTag) {
         });
         return response.data;
     } catch (error) {
-        return { error: "Error fetching player data." };
+        console.error("COC API Error:", error.response?.data || error.message);
+        return { error: "Error fetching player data. Check the tag or API status." };
     }
 }
 
-// Fetch clan info
 async function getClanInfo(clanTag) {
     try {
         const sanitizedTag = clanTag.replace("#", "");
@@ -46,11 +45,24 @@ async function getClanInfo(clanTag) {
         });
         return response.data;
     } catch (error) {
-        return { error: "Error fetching clan data." };
+        console.error("COC API Error:", error.response?.data || error.message);
+        return { error: "Error fetching clan data. Check the tag or API status." };
     }
 }
 
-// Fetch top 5 global clans
+async function getWarLog(clanTag) {
+    try {
+        const sanitizedTag = clanTag.replace("#", "");
+        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/warlog`, {
+            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        });
+        return response.data.items[0];
+    } catch (error) {
+        console.error("COC API Error:", error.response?.data || error.message);
+        return { error: "Error fetching war data. Check the tag or API status." };
+    }
+}
+
 async function getTopClans() {
     try {
         const response = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
@@ -58,54 +70,8 @@ async function getTopClans() {
         });
         return response.data.items.slice(0, 5);
     } catch (error) {
+        console.error("COC API Error:", error.response?.data || error.message);
         return { error: "Error fetching global leaderboard." };
-    }
-}
-
-// Fetch current war details
-async function getCurrentWar(clanTag) {
-    try {
-        const sanitizedTag = clanTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/currentwar`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        if (response.data.state !== "warInProgress" && response.data.state !== "preparation") {
-            return { error: "No active war currently." };
-        }
-        return {
-            clan1: response.data.clan.name,
-            clan2: response.data.opponent.name
-        };
-    } catch (error) {
-        return { error: "Error fetching war data." };
-    }
-}
-
-// Generate war slogan using GPT-4 Turbo
-async function generateWarSlogan(clan1, clan2) {
-    try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4-turbo",
-            messages: [{ role: "user", content: `Create an epic war slogan for a Clash of Clans battle between ${clan1} and ${clan2}.` }]
-        });
-        return response.choices[0].message.content;
-    } catch (error) {
-        return "An epic battle is about to begin!";
-    }
-}
-
-// Generate battle poster using DALL·E
-async function generateWarPoster(clan1, clan2) {
-    try {
-        const response = await openai.images.generate({
-            model: "dall-e-3",
-            prompt: `Epic battle scene between two powerful Clash of Clans clans, ${clan1} and ${clan2}, medieval fantasy war, fire, banners, warriors charging.`,
-            n: 1,
-            size: "1024x1024"
-        });
-        return response.data[0].url;
-    } catch (error) {
-        return null;
     }
 }
 
@@ -127,74 +93,17 @@ client.on("messageCreate", async (msg) => {
         if (!args[1]) return msg.reply("Please provide a player tag.");
         const playerData = await getPlayerInfo(args[1]);
         if (playerData.error) return msg.reply(`❌ Error: ${playerData.error}`);
-        return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}`);
+        return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
     }
 
     if (command === "!clan") {
         if (!args[1]) return msg.reply("Please provide a clan tag.");
         const clanData = await getClanInfo(args[1]);
         if (clanData.error) return msg.reply(`❌ Error: ${clanData.error}`);
-        return msg.reply(`🏰 **Clan Name:** ${clanData.name}\n🏆 **Clan Level:** ${clanData.clanLevel}`);
+        return msg.reply(`🏰 **Clan Name:** ${clanData.name}\n🏆 **Clan Level:** ${clanData.clanLevel}\n🎖️ **Clan Points:** ${clanData.clanPoints}\n🔥 **War Win Streak:** ${clanData.warWinStreak}\n⚔️ **War Wins:** ${clanData.warWins}`);
     }
 
-    if (command === "!leaderboard") {
-        const topClans = await getTopClans();
-        if (topClans.error) return msg.reply(`❌ ${topClans.error}`);
-        
-        const leaderboard = topClans.map((clan, index) => `${index + 1}. **${clan.name}** - 🏆 ${clan.clanPoints} Points`).join("\n");
-        return msg.reply(`🌍 **Top 5 Global Clans:**\n${leaderboard}`);
-    }
-
-    if (command === "!roast") {
-        const target = args[1] ? args[1] : msg.author.username;
-        try {
-            const response = await openai.chat.completions.create({
-                model: "gpt-4-turbo",
-                messages: [
-                    { role: "system", content: "You are a sarcastic AI that generates funny, lighthearted roasts." },
-                    { role: "user", content: `Roast ${target} in a funny but non-offensive way.` }
-                ]
-            });
-            return msg.reply(response.choices[0].message.content);
-        } catch (error) {
-            return msg.reply("❌ Error: Couldn't generate a roast.");
-        }
-    }
-
-    if (command === "!rps") {
-        const choices = ["rock", "paper", "scissors"];
-        const userChoice = args[1]?.toLowerCase();
-        if (!choices.includes(userChoice)) {
-            return msg.reply("Please choose rock, paper, or scissors. Example: `!rps rock`");
-        }
-        const botChoice = choices[Math.floor(Math.random() * choices.length)];
-        const result = userChoice === botChoice 
-            ? "It's a tie!" 
-            : (userChoice === "rock" && botChoice === "scissors") || (userChoice === "scissors" && botChoice === "paper") || (userChoice === "paper" && botChoice === "rock") 
-            ? "You win! 🎉" 
-            : "I win! 😈";
-        return msg.reply(`You chose **${userChoice}**. I chose **${botChoice}**. ${result}`);
-    }
-
-    if (command === "!poster") {
-        const clanTag = process.env.CLAN_TAG;
-        const warData = await getCurrentWar(clanTag);
-        if (warData.error) return msg.reply(`❌ ${warData.error}`);
-        
-        const slogan = await generateWarSlogan(warData.clan1, warData.clan2);
-        const imageUrl = await generateWarPoster(warData.clan1, warData.clan2);
-
-        const embed = new EmbedBuilder()
-            .setTitle("⚔️ CLAN WAR ALERT! ⚔️")
-            .setDescription(slogan)
-            .setColor(0xff0000);
-        
-        if (imageUrl) embed.setImage(imageUrl);
-        
-        return msg.channel.send({ embeds: [embed] });
-    }
-
-    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!poster`, `!roast`, or `!rps`.");
+    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!roast`, `!ask`, `!rps`, `!poster`, etc.");
 });
 
 client.login(process.env.DISCORD_TOKEN);
