@@ -90,33 +90,19 @@ client.on("messageCreate", async (msg) => {
         if (!args[1]) return msg.reply("Please provide a clan tag.");
         const clanData = await getClanInfo(args[1]);
         if (clanData.error) return msg.reply(`❌ Error: ${clanData.error}`);
-        
         return msg.reply(`🏰 **Clan Name:** ${clanData.name}\n🏆 **Clan Level:** ${clanData.clanLevel}\n🎖️ **Clan Points:** ${clanData.clanPoints}\n🔥 **War Win Streak:** ${clanData.warWinStreak}\n⚔️ **War Wins:** ${clanData.warWins}`);
     }
 
-    if (command === "!leaderboard") {
-        const topClans = await getTopClans();
-        if (topClans.error) return msg.reply(`❌ Error: ${topClans.error}`);
-
-        const leaderboard = topClans
-            .slice(0, 5)
-            .map((clan, index) => `${index + 1}. **${clan.name}** - 🏆 ${clan.clanPoints} Points - ${clan.members} Members`)
-            .join("\n");
-
-        return msg.reply(`🌍 **Top 5 Global Clans:**\n${leaderboard}`);
-    }
-
     if (command === "!roast") {
-        const target = args[1] ? args[1] : msg.author.username; // Target user or the sender
+        const target = args[1] ? args[1] : msg.author.username;
         try {
             const response = await openai.chat.completions.create({
-                model: "gpt-3.5-turbo",
+                model: "gpt-4-turbo",
                 messages: [
                     { role: "system", content: "You are a sarcastic and humorous AI that generates funny, lighthearted roasts." },
                     { role: "user", content: `Roast ${target} in a funny but non-offensive way.` }
                 ]
             });
-
             return msg.reply(response.choices[0].message.content);
         } catch (error) {
             console.error("OpenAI API Error:", error);
@@ -127,45 +113,16 @@ client.on("messageCreate", async (msg) => {
     if (command === "!ask") {
         if (args.length < 2) return msg.reply("Please provide a question.");
         const question = args.slice(1).join(" ");
-
         try {
             const response = await openai.chat.completions.create({
-                model: "gpt-3.5-turbo",
+                model: "gpt-4-turbo",
                 messages: [{ role: "user", content: question }]
             });
-
             return msg.reply(response.choices[0].message.content);
         } catch (error) {
             console.error("OpenAI API Error:", error);
             return msg.reply("❌ Error: Unable to process your request.");
         }
-    }
-
-    if (command === "!rps") {
-        if (!args[1]) return msg.reply("Please choose rock, paper, or scissors! Example: `!rps rock`");
-
-        const choices = ["rock", "paper", "scissors"];
-        const userChoice = args[1].toLowerCase();
-        if (!choices.includes(userChoice)) {
-            return msg.reply("Invalid choice! Please choose rock, paper, or scissors.");
-        }
-
-        const botChoice = choices[Math.floor(Math.random() * choices.length)];
-
-        let result;
-        if (userChoice === botChoice) {
-            result = "It's a tie!";
-        } else if (
-            (userChoice === "rock" && botChoice === "scissors") ||
-            (userChoice === "paper" && botChoice === "rock") ||
-            (userChoice === "scissors" && botChoice === "paper")
-        ) {
-            result = "You win! 🎉";
-        } else {
-            result = "I win! 👻";
-        }
-
-        return msg.reply(`You chose **${userChoice}**. I chose **${botChoice}**. ${result}`);
     }
 
     return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!roast`, `!ask`, or `!rps`.");
