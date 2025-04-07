@@ -1,3 +1,5 @@
+require('dotenv').config();  // Add this to load environment variables
+
 const express = require("express");
 const app = express();
 const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes } = require("discord.js");
@@ -14,10 +16,12 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on port ${PORT}`);
 });
 
+// Creating the Discord client
 const client = new Client({ 
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
 });
 
+// Initialize OpenAI and Clash of Clans API Key
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const COC_API_KEY = process.env.COC_API_KEY;
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
@@ -40,14 +44,16 @@ const commands = [
         option.setName('tag').setDescription('Clan Tag').setRequired(true))
 ];
 
+// Initialize REST client
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
+// Register the commands using the CLIENT_ID from .env
 (async () => {
     try {
         console.log('Started refreshing application (/) commands.');
         
         await rest.put(
-            Routes.applicationCommands(process.env.CLIENT_ID),
+            Routes.applicationCommands(process.env.CLIENT_ID),  // Use CLIENT_ID from .env
             { body: commands },
         );
         
@@ -61,6 +67,7 @@ client.on('ready', () => {
     console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 });
 
+// Handle interactions (commands)
 client.on('interactionCreate', async (interaction) => {
     if (!interaction.isCommand()) return;
 
@@ -124,4 +131,5 @@ client.on('interactionCreate', async (interaction) => {
     }
 });
 
+// Login to Discord
 client.login(process.env.DISCORD_TOKEN);
