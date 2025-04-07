@@ -99,7 +99,7 @@ function playRps(userChoice) {
 async function roastUser(target) {
     try {
         const response = await openai.chat.completions.create({
-            model: "gpt-4-turbo",
+            model: "gpt-4o,
             messages: [
                 { role: "system", content: "You are a humorous, sarcastic AI that generates funny but non-offensive roasts." },
                 { role: "user", content: `Roast ${target} in a funny but lighthearted way.` }
@@ -145,7 +145,7 @@ client.on("messageCreate", async (msg) => {
         const question = args.slice(1).join(" ");
         try {
             const response = await openai.chat.completions.create({
-                model: "gpt-4-turbo",
+                model: "gpt-4o",
                 messages: [{ role: "user", content: question }]
             });
             return msg.reply(response.choices[0].message.content);
