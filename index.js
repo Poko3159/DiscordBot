@@ -1,126 +1,28 @@
-const express = require("express");
-const app = express();
-const { Client, GatewayIntentBits } = require("discord.js");
-const OpenAI = require("openai");
-const axios = require("axios");
-
-// Express server for uptime monitoring
-app.get("/", (req, res) => {
-    res.send("Bot is alive!");
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server is running on port ${PORT}`);
-});
-
-const client = new Client({ 
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
-});
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-const COC_API_KEY = process.env.COC_API_KEY;
-const COC_BASE_URL = "https://api.clashofclans.com/v1";
-
-console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
-
-// Fetch player info
-async function getPlayerInfo(playerTag) {
-    try {
-        const sanitizedTag = playerTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/players/%23${sanitizedTag}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data;
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching player data. Check the tag or API status." };
-    }
-}
-
-// Fetch clan info
-async function getClanInfo(clanTag) {
-    try {
-        const sanitizedTag = clanTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data;
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching clan data. Check the tag or API status." };
-    }
-}
-
-// Fetch top global clans
-async function getTopClans() {
-    try {
-        const response = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data.items.slice(0, 5);
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching global leaderboard." };
-    }
-}
-
-// Fetch war data for a clan
-async function getClanWarData(clanTag) {
-    try {
-        const sanitizedTag = clanTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/currentwar`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data;
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching war data. Check the clan tag or API status." };
-    }
-}
-
-// Rock Paper Scissors game
-const rpsChoices = ["rock", "paper", "scissors"];
-function playRps(userChoice) {
-    const botChoice = rpsChoices[Math.floor(Math.random() * rpsChoices.length)];
-    if (userChoice === botChoice) return `It's a tie! We both chose ${botChoice}.`;
-    if (
-        (userChoice === "rock" && botChoice === "scissors") ||
-        (userChoice === "paper" && botChoice === "rock") ||
-        (userChoice === "scissors" && botChoice === "paper")
-    ) {
-        return `You win! I chose ${botChoice}.`;
-    } else {
-        return `I win! I chose ${botChoice}.`;
-    }
-}
-
-// Roast generator using OpenAI
-async function roastUser(target) {
-    try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: "You are a humorous, sarcastic AI that generates funny but non-offensive roasts." },
-                { role: "user", content: `Roast ${target} in a funny but lighthearted way.` }
-            ]
-        });
-        return response.choices[0].message.content;
-    } catch (error) {
-        console.error("OpenAI Error:", error);
-        return "I couldn't roast them this time! Maybe they're just too nice?";
-    }
-}
-
-client.on('ready', () => {
-    console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
-});
-
 client.on("messageCreate", async (msg) => {
     if (msg.author.bot || !msg.content.startsWith("!")) return;
 
     const args = msg.content.split(" ");
     const command = args[0].toLowerCase();
+
+    // Help command - Shows available commands
+    if (command === "!help") {
+        return msg.reply(`
+Here are the available commands:
+
+1. **!ping** - Check if the bot is online and responsive.
+2. **!player [playerTag]** - Get information about a player.
+3. **!clan [clanTag]** - Get information about a clan.
+4. **!leaderboard** - Show the top 5 global clans.
+5. **!ask [question]** - Ask the bot a question, and it will respond.
+6. **!roast [username]** - Get a funny roast of a user (or yourself if no username is provided).
+7. **!rps [rock/paper/scissors]** - Play a game of Rock, Paper, Scissors.
+8. **!poster [clanTag]** - Get current war information about a clan.
+
+Type `!commandName` to use any of the above commands.
+
+Note: Replace `[playerTag]` and `[clanTag]` with valid tags (e.g., `#ABC123`).
+        `);
+    }
 
     if (command === "!ping") {
         return msg.reply("🏓 Pong! The bot is online and responsive.");
@@ -186,7 +88,5 @@ client.on("messageCreate", async (msg) => {
         return msg.reply(`📅 **Clan War Status:** ${warStatus}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`);
     }
 
-    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!ask`, `!roast`, `!rps`, `!poster`.");
+    return msg.reply("Invalid command. Use `!help` for a list of available commands.");
 });
-
-client.login(process.env.DISCORD_TOKEN);
