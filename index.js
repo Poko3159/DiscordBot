@@ -198,13 +198,20 @@ async function getClanWarData(tag) {
     }
 }
 
+// Updated getTopClans function to handle API response correctly
 async function getTopClans() {
     try {
         const res = await axios.get(`${COC_BASE_URL}/locations/32000000/rankings/clans`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
-        return res.data.items;
+
+        if (res.data && res.data.items && Array.isArray(res.data.items)) {
+            return res.data.items.slice(0, 5); // Top 5 clans
+        } else {
+            return { error: "Failed to retrieve top clans data. Invalid response format." };
+        }
     } catch (error) {
+        console.error("Error fetching top clans:", error);
         return { error: error.response?.data?.message || "Failed to fetch top clans." };
     }
 }
