@@ -1,6 +1,6 @@
 const express = require("express");
 const app = express();
-const { Client, GatewayIntentBits, Events, SlashCommandBuilder, REST, Routes, EmbedBuilder } = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
 const OpenAI = require("openai");
 const axios = require("axios");
 
@@ -24,7 +24,9 @@ const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
 console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
 
-// Fetch player info
+const rpsChoices = ["rock", "paper", "scissors"];
+
+// COC Helper Functions
 async function getPlayerInfo(playerTag) {
     try {
         const sanitizedTag = playerTag.replace("#", "");
@@ -38,7 +40,6 @@ async function getPlayerInfo(playerTag) {
     }
 }
 
-// Fetch clan info
 async function getClanInfo(clanTag) {
     try {
         const sanitizedTag = clanTag.replace("#", "");
@@ -52,7 +53,6 @@ async function getClanInfo(clanTag) {
     }
 }
 
-// Fetch top global clans
 async function getTopClans() {
     try {
         const response = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
@@ -65,7 +65,6 @@ async function getTopClans() {
     }
 }
 
-// Fetch war data for a clan
 async function getClanWarData(clanTag) {
     try {
         const sanitizedTag = clanTag.replace("#", "");
@@ -79,8 +78,6 @@ async function getClanWarData(clanTag) {
     }
 }
 
-// Rock Paper Scissors game
-const rpsChoices = ["rock", "paper", "scissors"];
 function playRps(userChoice) {
     const botChoice = rpsChoices[Math.floor(Math.random() * rpsChoices.length)];
     if (userChoice === botChoice) return `It's a tie! We both chose ${botChoice}.`;
@@ -95,7 +92,6 @@ function playRps(userChoice) {
     }
 }
 
-// Roast generator using OpenAI
 async function roastUser(target) {
     try {
         const response = await openai.chat.completions.create({
@@ -112,55 +108,112 @@ async function roastUser(target) {
     }
 }
 
-client.on('ready', () => {
-    console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
-});
-
-client.on(Events.InteractionCreate, async interaction => {
-    if (!interaction.isChatInputCommand()) return;
-
-    if (interaction.commandName === "help") {
-        await interaction.reply({
-            embeds: [
-                {
-                    title: "Bot Commands",
-                    description: [
-                        "**/ping** - Check bot status",
-                        "**/player [tag]** - Get Clash of Clans player info",
-                        "**/clan [tag]** - Get clan info",
-                        "**/leaderboard** - Top 5 global clans",
-                        "**/ask [question]** - Ask anything",
-                        "**/roast [target]** - Generate a funny roast",
-                        "**/rps [choice]** - Play Rock Paper Scissors",
-                        "**/poster [clan tag]** - Get current war poster",
-                        "**/help** - Show this command list"
-                    ].join("\n"),
-                    color: 0x00ff99
-                }
-            ],
-            ephemeral: true
-        });
-    }
-});
-
 client.once("ready", async () => {
-    const commands = [
-        { name: "ping", description: "Check bot status" },
-        { name: "player", description: "Get Clash of Clans player info" },
-        { name: "clan", description: "Get clan info" },
-        { name: "leaderboard", description: "Top 5 global clans" },
-        { name: "ask", description: "Ask anything" },
-        { name: "roast", description: "Generate a funny roast" },
-        { name: "rps", description: "Play Rock Paper Scissors" },
-        { name: "poster", description: "Get current war poster" },
-        { name: "help", description: "Show all available slash commands" }
-    ];
+    console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 
-    try {
-        await client.application?.commands.set(commands); // Global commands
-        console.log("Slash commands registered successfully!");
-    } catch (error) {
-        console.error("Error registering slash commands:", error);
+    const commands = [
+        new SlashCommandBuilder().setName("ping").setDescription("Check if the bot is alive."),
+        new SlashCommandBuilder().setName("player").setDescription("Get info about a player.")
+            .addStringOption(option => option.setName("tag").setDescription("Player tag").setRequired(true)),
+        new SlashCommandBuilder().setName("clan").setDescription("Get info about a clan.")
+            .addStringOption(option => option.setName("tag").setDescription("Clan tag").setRequired(true)),
+        new SlashCommandBuilder().setName("leaderboard").setDescription("Get top 5 global clans."),
+        new SlashCommandBuilder().setName("ask").setDescription("Ask any question to OpenAI.")
+            .addStringOption(option => option.setName("question").setDescription("Your question").setRequired(true)),
+        new SlashCommandBuilder().setName("roast").setDescription("Roast a user.")
+            .addStringOption(option => option.setName("target").setDescription("Target to roast")),
+        new SlashCommandBuilder().setName("rps").setDescription("Play Rock Paper Scissors.")
+            .addStringOption(option => option.setName("choice").setDescription("rock, paper, or scissors").setRequired(true)),
+        new SlashCommandBuilder().setName("poster").setDescription("Get current war data for a clan.")
+            .addStringOption(option => option.setName("tag").setDescription("Clan tag").setRequired(true)),
+        new SlashCommandBuilder().setName("help").setDescription("List all available commands.")
+    ].map(cmd => cmd.toJSON());
+
+    const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log("✅ Slash commands registered globally.");
+});
+
+client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    await interaction.deferReply();
+
+    const { commandName, options } = interaction;
+
+    if (commandName === "ping") {
+        return interaction.editReply("🏓 Pong!");
+    }
+
+    if (commandName === "player") {
+        const tag = options.getString("tag");
+        const data = await getPlayerInfo(tag);
+        if (data.error) return interaction.editReply(`❌ Error: ${data.error}`);
+        return interaction.editReply(`🏆 **Player Name:** ${data.name}\n🏰 **Town Hall Level:** ${data.townHallLevel}\n⭐ **Trophies:** ${data.trophies}\n⚔️ **War Stars:** ${data.warStars}\n🎖️ **Clan:** ${data.clan ? data.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${data.expLevel}`);
+    }
+
+    if (commandName === "clan") {
+        const tag = options.getString("tag");
+        const data = await getClanInfo(tag);
+        if (data.error) return interaction.editReply(`❌ Error: ${data.error}`);
+        return interaction.editReply(`🏰 **Clan Name:** ${data.name}\n🏆 **Clan Level:** ${data.clanLevel}\n🎖️ **Clan Points:** ${data.clanPoints}\n🔥 **War Win Streak:** ${data.warWinStreak}\n⚔️ **War Wins:** ${data.warWins}`);
+    }
+
+    if (commandName === "leaderboard") {
+        const topClans = await getTopClans();
+        if (topClans.error) return interaction.editReply(`❌ Error: ${topClans.error}`);
+        const leaderboard = topClans.map((clan, i) => `${i + 1}. **${clan.name}** - ${clan.clanPoints} points`).join("\n");
+        return interaction.editReply(`🏆 **Top 5 Global Clans:**\n${leaderboard}`);
+    }
+
+    if (commandName === "ask") {
+        const question = options.getString("question");
+        try {
+            const res = await openai.chat.completions.create({
+                model: "gpt-4o",
+                messages: [{ role: "user", content: question }]
+            });
+            return interaction.editReply(res.choices[0].message.content);
+        } catch (err) {
+            console.error("OpenAI Error:", err);
+            return interaction.editReply("❌ Error: Unable to process your request.");
+        }
+    }
+
+    if (commandName === "roast") {
+        const target = options.getString("target") || interaction.user.username;
+        const roast = await roastUser(target);
+        return interaction.editReply(roast);
+    }
+
+    if (commandName === "rps") {
+        const choice = options.getString("choice").toLowerCase();
+        if (!rpsChoices.includes(choice)) {
+            return interaction.editReply("Invalid choice. Choose rock, paper, or scissors.");
+        }
+        const result = playRps(choice);
+        return interaction.editReply(result);
+    }
+
+    if (commandName === "poster") {
+        const tag = options.getString("tag");
+        const warData = await getClanWarData(tag);
+        if (warData.error) return interaction.editReply(`❌ Error: ${warData.error}`);
+        const warStatus = warData.state === "inWar" ? "Currently at War" : "Not in a war right now";
+        return interaction.editReply(`📅 **Clan War Status:** ${warStatus}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`);
+    }
+
+    if (commandName === "help") {
+        return interaction.editReply(
+            "**Available Slash Commands:**\n" +
+            "`/ping` - Check bot status\n" +
+            "`/player [tag]` - Get player info\n" +
+            "`/clan [tag]` - Get clan info\n" +
+            "`/leaderboard` - Top global clans\n" +
+            "`/ask [question]` - Ask OpenAI anything\n" +
+            "`/roast [target]` - Roast someone\n" +
+            "`/rps [choice]` - Rock Paper Scissors\n" +
+            "`/poster [tag]` - Clan war status"
+        );
     }
 });
 
