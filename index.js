@@ -200,7 +200,7 @@ async function getClanWarData(tag) {
 
 async function getTopClans() {
     try {
-        const res = await axios.get(`${COC_BASE_URL}/clans?limit=5&locationId=global`, {
+        const res = await axios.get(`${COC_BASE_URL}/locations/32000000/rankings/clans`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return res.data.items;
