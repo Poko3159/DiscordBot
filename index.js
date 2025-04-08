@@ -189,14 +189,14 @@ client.on("messageCreate", async (msg) => {
     return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!ask`, `!roast`, `!rps`, `!poster`.");
 });
 
-// Register slash commands correctly using CLIENT_ID
+// Register slash commands globally
 client.once("ready", async () => {
     const commands = [
         // your slash commands here
     ];
     
     try {
-        await client.application?.commands.set(commands);
+        await client.application?.commands.set(commands); // Global commands
         console.log("Slash commands registered successfully!");
     } catch (error) {
         console.error("Error registering slash commands:", error);
