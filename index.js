@@ -1,6 +1,6 @@
 const express = require("express");
 const app = express();
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes } = require("discord.js");
 const OpenAI = require("openai");
 const axios = require("axios");
 
@@ -24,7 +24,7 @@ const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
 console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
 
-// Fetch player info
+// Helper functions for fetching data (no changes here)
 async function getPlayerInfo(playerTag) {
     try {
         const sanitizedTag = playerTag.replace("#", "");
@@ -38,7 +38,6 @@ async function getPlayerInfo(playerTag) {
     }
 }
 
-// Fetch clan info
 async function getClanInfo(clanTag) {
     try {
         const sanitizedTag = clanTag.replace("#", "");
@@ -52,7 +51,6 @@ async function getClanInfo(clanTag) {
     }
 }
 
-// Fetch top global clans
 async function getTopClans() {
     try {
         const response = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
@@ -62,20 +60,6 @@ async function getTopClans() {
     } catch (error) {
         console.error("COC API Error:", error.response?.data || error.message);
         return { error: "Error fetching global leaderboard." };
-    }
-}
-
-// Fetch war data for a clan
-async function getClanWarData(clanTag) {
-    try {
-        const sanitizedTag = clanTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/currentwar`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data;
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching war data. Check the clan tag or API status." };
     }
 }
 
@@ -116,77 +100,157 @@ client.on('ready', () => {
     console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 });
 
-client.on("messageCreate", async (msg) => {
-    if (msg.author.bot || !msg.content.startsWith("!")) return;
+// Slash Command Handling
+client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isCommand()) return;
 
-    const args = msg.content.split(" ");
-    const command = args[0].toLowerCase();
+    const { commandName } = interaction;
 
-    if (command === "!ping") {
-        return msg.reply("🏓 Pong! The bot is online and responsive.");
+    if (commandName === "ping") {
+        return interaction.reply("🏓 Pong! The bot is online and responsive.");
     }
 
-    if (command === "!player") {
-        if (!args[1]) return msg.reply("Please provide a player tag.");
-        const playerData = await getPlayerInfo(args[1]);
-        if (playerData.error) return msg.reply(`❌ Error: ${playerData.error}`);
-        return msg.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
+    if (commandName === "player") {
+        const playerTag = interaction.options.getString("playerTag");
+        if (!playerTag) return interaction.reply("Please provide a player tag.");
+        const playerData = await getPlayerInfo(playerTag);
+        if (playerData.error) return interaction.reply(`❌ Error: ${playerData.error}`);
+        return interaction.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
     }
 
-    if (command === "!clan") {
-        if (!args[1]) return msg.reply("Please provide a clan tag.");
-        const clanData = await getClanInfo(args[1]);
-        if (clanData.error) return msg.reply(`❌ Error: ${clanData.error}`);
-        return msg.reply(`🏰 **Clan Name:** ${clanData.name}\n🏆 **Clan Level:** ${clanData.clanLevel}\n🎖️ **Clan Points:** ${clanData.clanPoints}\n🔥 **War Win Streak:** ${clanData.warWinStreak}\n⚔️ **War Wins:** ${clanData.warWins}`);
+    if (commandName === "clan") {
+        const clanTag = interaction.options.getString("clanTag");
+        if (!clanTag) return interaction.reply("Please provide a clan tag.");
+        const clanData = await getClanInfo(clanTag);
+        if (clanData.error) return interaction.reply(`❌ Error: ${clanData.error}`);
+        return interaction.reply(`🏰 **Clan Name:** ${clanData.name}\n🏆 **Clan Level:** ${clanData.clanLevel}\n🎖️ **Clan Points:** ${clanData.clanPoints}\n🔥 **War Win Streak:** ${clanData.warWinStreak}\n⚔️ **War Wins:** ${clanData.warWins}`);
     }
 
-    if (command === "!ask") {
-        if (args.length < 2) return msg.reply("Please provide a question.");
-        const question = args.slice(1).join(" ");
+    if (commandName === "leaderboard") {
+        const topClans = await getTopClans();
+        if (topClans.error) return interaction.reply(`❌ Error: ${topClans.error}`);
+        const leaderboard = topClans.map((clan, index) => `${index + 1}. **${clan.name}** - ${clan.clanPoints} points`).join("\n");
+        return interaction.reply(`🏆 **Top 5 Global Clans:**\n${leaderboard}`);
+    }
+
+    if (commandName === "ask") {
+        const question = interaction.options.getString("question");
+        if (!question) return interaction.reply("Please provide a question.");
         try {
             const response = await openai.chat.completions.create({
                 model: "gpt-4o",
                 messages: [{ role: "user", content: question }]
             });
-            return msg.reply(response.choices[0].message.content);
+            return interaction.reply(response.choices[0].message.content);
         } catch (error) {
             console.error("OpenAI API Error:", error);
-            return msg.reply("❌ Error: Unable to process your request.");
+            return interaction.reply("❌ Error: Unable to process your request.");
         }
     }
 
-    if (command === "!roast") {
-        const target = args[1] ? args[1] : msg.author.username;
-        const roast = await roastUser(target);
-        return msg.reply(roast);
-    }
-
-    if (command === "!rps") {
-        if (args.length < 2) return msg.reply("Please choose rock, paper, or scissors.");
-        const userChoice = args[1].toLowerCase();
-        if (!rpsChoices.includes(userChoice)) return msg.reply("Invalid choice! Choose rock, paper, or scissors.");
+    if (commandName === "rps") {
+        const userChoice = interaction.options.getString("choice").toLowerCase();
         const result = playRps(userChoice);
-        return msg.reply(result);
+        return interaction.reply(result);
     }
 
-    if (command === "!leaderboard") {
-        const topClans = await getTopClans();
-        if (topClans.error) return msg.reply(`❌ Error: ${topClans.error}`);
-        const leaderboard = topClans.map((clan, index) => `${index + 1}. **${clan.name}** - ${clan.clanPoints} points`).join("\n");
-        return msg.reply(`🏆 **Top 5 Global Clans:**\n${leaderboard}`);
+    if (commandName === "roast") {
+        const target = interaction.options.getString("target") || interaction.user.username;
+        const roast = await roastUser(target);
+        return interaction.reply(roast);
     }
-
-    if (command === "!poster") {
-        if (!args[1]) return msg.reply("Please provide a clan tag.");
-        const clanTag = args[1];
-        const warData = await getClanWarData(clanTag);
-        if (warData.error) return msg.reply(`❌ Error: ${warData.error}`);
-        
-        const warStatus = warData.state === "inWar" ? "Currently at War" : "Not in a war right now";
-        return msg.reply(`📅 **Clan War Status:** ${warStatus}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`);
-    }
-
-    return msg.reply("Invalid command. Use `!ping`, `!player`, `!clan`, `!leaderboard`, `!ask`, `!roast`, `!rps`, `!poster`.");
 });
+
+// Register Slash Commands with Discord API
+const commands = [
+    {
+        name: "ping",
+        description: "Check if the bot is responsive."
+    },
+    {
+        name: "player",
+        description: "Get information about a player.",
+        options: [
+            {
+                name: "playerTag",
+                type: "STRING",
+                description: "The player tag (e.g., #ABC123)",
+                required: true
+            }
+        ]
+    },
+    {
+        name: "clan",
+        description: "Get information about a clan.",
+        options: [
+            {
+                name: "clanTag",
+                type: "STRING",
+                description: "The clan tag (e.g., #ABC123)",
+                required: true
+            }
+        ]
+    },
+    {
+        name: "leaderboard",
+        description: "Show the top 5 global clans."
+    },
+    {
+        name: "ask",
+        description: "Ask a question.",
+        options: [
+            {
+                name: "question",
+                type: "STRING",
+                description: "The question you want to ask.",
+                required: true
+            }
+        ]
+    },
+    {
+        name: "rps",
+        description: "Play Rock, Paper, Scissors.",
+        options: [
+            {
+                name: "choice",
+                type: "STRING",
+                description: "Your choice (rock, paper, scissors)",
+                required: true,
+                choices: [
+                    { name: "rock", value: "rock" },
+                    { name: "paper", value: "paper" },
+                    { name: "scissors", value: "scissors" }
+                ]
+            }
+        ]
+    },
+    {
+        name: "roast",
+        description: "Roast a user.",
+        options: [
+            {
+                name: "target",
+                type: "STRING",
+                description: "The user to roast",
+                required: false
+            }
+        ]
+    }
+];
+
+// Register commands with Discord
+const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+
+(async () => {
+    try {
+        console.log("Started refreshing application (/) commands.");
+        await rest.put(Routes.applicationCommands(process.env.DISCORD_CLIENT_ID), {
+            body: commands
+        });
+        console.log("Successfully reloaded application (/) commands.");
+    } catch (error) {
+        console.error(error);
+    }
+})();
 
 client.login(process.env.DISCORD_TOKEN);
