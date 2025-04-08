@@ -216,143 +216,20 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply(`📅 **Clan War Status:** ${warStatus}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`);
     }
 
+    // OCR command
     if (commandName === "ocr") {
         const imageUrl = interaction.options.getString("image");
-        if (!imageUrl) return interaction.reply("Please provide an image URL.");
-        const text = await ocrImage(imageUrl);
-        return interaction.reply(`Extracted Text: ${text}`);
+        if (!imageUrl) return interaction.reply("Please provide a valid image URL.");
+        const extractedText = await ocrImage(imageUrl);
+        return interaction.reply(extractedText);
     }
 
+    // Summarize command
     if (commandName === "summarise") {
-        const textToSummarize = interaction.options.getString("text");
-        if (!textToSummarize) return interaction.reply("Please provide the text you want to summarize.");
-        const summary = await summarizeText(textToSummarize);
-        return interaction.reply(`Summary: ${summary}`);
-    }
-
-    if (commandName === "help") {
-        return interaction.reply(`Here are the available commands:
-        /ping - Check if the bot is online
-        /player [tag] - Get player information
-        /clan [tag] - Get clan information
-        /ask [question] - Ask me anything
-        /roast [target] - Roast someone (or yourself)
-        /rps [rock|paper|scissors] - Play rock-paper-scissors
-        /leaderboard - Show the top 5 global clans
-        /poster [tag] - Get clan war details
-        /ocr [image URL] - Extract text from an image using OCR
-        /summarise [text] - Summarize the provided text
-        `);
-    }
-});
-
-// Register slash commands globally
-client.once("ready", async () => {
-    const commands = [
-        {
-            name: "ping",
-            description: "Check if the bot is online"
-        },
-        {
-            name: "player",
-            description: "Get player information",
-            options: [{
-                name: "tag",
-                type: "STRING",
-                description: "Player tag",
-                required: true
-            }]
-        },
-        {
-            name: "clan",
-            description: "Get clan information",
-            options: [{
-                name: "tag",
-                type: "STRING",
-                description: "Clan tag",
-                required: true
-            }]
-        },
-        {
-            name: "ask",
-            description: "Ask me anything",
-            options: [{
-                name: "question",
-                type: "STRING",
-                description: "Your question",
-                required: true
-            }]
-        },
-        {
-            name: "roast",
-            description: "Roast someone",
-            options: [{
-                name: "target",
-                type: "STRING",
-                description: "User to roast",
-                required: false
-            }]
-        },
-        {
-            name: "rps",
-            description: "Play rock-paper-scissors",
-            options: [{
-                name: "choice",
-                type: "STRING",
-                description: "Your choice",
-                required: true,
-                choices: [
-                    { name: "rock", value: "rock" },
-                    { name: "paper", value: "paper" },
-                    { name: "scissors", value: "scissors" }
-                ]
-            }]
-        },
-        {
-            name: "leaderboard",
-            description: "Show the top 5 global clans"
-        },
-        {
-            name: "poster",
-            description: "Get clan war details",
-            options: [{
-                name: "tag",
-                type: "STRING",
-                description: "Clan tag",
-                required: true
-            }]
-        },
-        {
-            name: "ocr",
-            description: "Extract text from an image using OCR",
-            options: [{
-                name: "image",
-                type: "STRING",
-                description: "Image URL",
-                required: true
-            }]
-        },
-        {
-            name: "summarise",
-            description: "Summarize the provided text",
-            options: [{
-                name: "text",
-                type: "STRING",
-                description: "Text to summarize",
-                required: true
-            }]
-        },
-        {
-            name: "help",
-            description: "Show all available commands"
-        }
-    ];
-    
-    try {
-        await client.application?.commands.set(commands); // Global commands
-        console.log("Slash commands registered successfully!");
-    } catch (error) {
-        console.error("Error registering slash commands:", error);
+        const text = interaction.options.getString("text");
+        if (!text) return interaction.reply("Please provide the text you want summarized.");
+        const summary = await summarizeText(text);
+        return interaction.reply(summary);
     }
 });
 
