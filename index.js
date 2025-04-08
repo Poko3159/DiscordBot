@@ -1,9 +1,8 @@
 const express = require("express");
 const app = express();
-const { Client, GatewayIntentBits } = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
 const OpenAI = require("openai");
 const axios = require("axios");
-const Tesseract = require("tesseract.js");
 
 // Express server for uptime monitoring
 app.get("/", (req, res) => {
@@ -25,7 +24,9 @@ const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
 console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
 
-// Fetch player info
+const rpsChoices = ["rock", "paper", "scissors"];
+
+// COC Helper Functions
 async function getPlayerInfo(playerTag) {
     try {
         const sanitizedTag = playerTag.replace("#", "");
@@ -39,7 +40,6 @@ async function getPlayerInfo(playerTag) {
     }
 }
 
-// Fetch clan info
 async function getClanInfo(clanTag) {
     try {
         const sanitizedTag = clanTag.replace("#", "");
@@ -53,7 +53,6 @@ async function getClanInfo(clanTag) {
     }
 }
 
-// Fetch top global clans
 async function getTopClans() {
     try {
         const response = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
@@ -66,7 +65,6 @@ async function getTopClans() {
     }
 }
 
-// Fetch war data for a clan
 async function getClanWarData(clanTag) {
     try {
         const sanitizedTag = clanTag.replace("#", "");
@@ -80,8 +78,6 @@ async function getClanWarData(clanTag) {
     }
 }
 
-// Rock Paper Scissors game
-const rpsChoices = ["rock", "paper", "scissors"];
 function playRps(userChoice) {
     const botChoice = rpsChoices[Math.floor(Math.random() * rpsChoices.length)];
     if (userChoice === botChoice) return `It's a tie! We both chose ${botChoice}.`;
@@ -96,7 +92,6 @@ function playRps(userChoice) {
     }
 }
 
-// Roast generator using OpenAI
 async function roastUser(target) {
     try {
         const response = await openai.chat.completions.create({
@@ -113,123 +108,112 @@ async function roastUser(target) {
     }
 }
 
-// OCR functionality
-async function ocrImage(imageUrl) {
-    try {
-        const { data: { text } } = await Tesseract.recognize(imageUrl, 'eng', {
-            logger: (m) => console.log(m)
-        });
-        return text;
-    } catch (error) {
-        console.error("OCR Error:", error);
-        return "Sorry, I couldn't extract text from the image.";
-    }
-}
-
-// Summarize functionality using OpenAI
-async function summarizeText(text) {
-    try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: "You are a helpful assistant that can summarize long texts into short summaries." },
-                { role: "user", content: `Please summarize the following text:\n\n${text}` }
-            ]
-        });
-        return response.choices[0].message.content;
-    } catch (error) {
-        console.error("OpenAI Error:", error);
-        return "Sorry, I couldn't summarize the text. Please try again.";
-    }
-}
-
-client.on('ready', () => {
+client.once("ready", async () => {
     console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
+
+    const commands = [
+        new SlashCommandBuilder().setName("ping").setDescription("Check if the bot is alive."),
+        new SlashCommandBuilder().setName("player").setDescription("Get info about a player.")
+            .addStringOption(option => option.setName("tag").setDescription("Player tag").setRequired(true)),
+        new SlashCommandBuilder().setName("clan").setDescription("Get info about a clan.")
+            .addStringOption(option => option.setName("tag").setDescription("Clan tag").setRequired(true)),
+        new SlashCommandBuilder().setName("leaderboard").setDescription("Get top 5 global clans."),
+        new SlashCommandBuilder().setName("ask").setDescription("Ask any question to OpenAI.")
+            .addStringOption(option => option.setName("question").setDescription("Your question").setRequired(true)),
+        new SlashCommandBuilder().setName("roast").setDescription("Roast a user.")
+            .addStringOption(option => option.setName("target").setDescription("Target to roast")),
+        new SlashCommandBuilder().setName("rps").setDescription("Play Rock Paper Scissors.")
+            .addStringOption(option => option.setName("choice").setDescription("rock, paper, or scissors").setRequired(true)),
+        new SlashCommandBuilder().setName("poster").setDescription("Get current war data for a clan.")
+            .addStringOption(option => option.setName("tag").setDescription("Clan tag").setRequired(true)),
+        new SlashCommandBuilder().setName("help").setDescription("List all available commands.")
+    ].map(cmd => cmd.toJSON());
+
+    const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+    await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+    console.log("✅ Slash commands registered globally.");
 });
 
 client.on("interactionCreate", async (interaction) => {
-    if (!interaction.isCommand()) return;
+    if (!interaction.isChatInputCommand()) return;
+    await interaction.deferReply();
 
-    const { commandName } = interaction;
+    const { commandName, options } = interaction;
 
     if (commandName === "ping") {
-        await interaction.reply("🏓 Pong! The bot is online and responsive.");
+        return interaction.editReply("🏓 Pong!");
     }
 
     if (commandName === "player") {
-        const playerTag = interaction.options.getString("tag");
-        if (!playerTag) return interaction.reply("Please provide a player tag.");
-        const playerData = await getPlayerInfo(playerTag);
-        if (playerData.error) return interaction.reply(`❌ Error: ${playerData.error}`);
-        return interaction.reply(`🏆 **Player Name:** ${playerData.name}\n🏰 **Town Hall Level:** ${playerData.townHallLevel}\n⭐ **Trophies:** ${playerData.trophies}\n⚔️ **War Stars:** ${playerData.warStars}\n🎖️ **Clan:** ${playerData.clan ? playerData.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${playerData.expLevel}`);
+        const tag = options.getString("tag");
+        const data = await getPlayerInfo(tag);
+        if (data.error) return interaction.editReply(`❌ Error: ${data.error}`);
+        return interaction.editReply(`🏆 **Player Name:** ${data.name}\n🏰 **Town Hall Level:** ${data.townHallLevel}\n⭐ **Trophies:** ${data.trophies}\n⚔️ **War Stars:** ${data.warStars}\n🎖️ **Clan:** ${data.clan ? data.clan.name : "No Clan"}\n🛠️ **Experience Level:** ${data.expLevel}`);
     }
 
     if (commandName === "clan") {
-        const clanTag = interaction.options.getString("tag");
-        if (!clanTag) return interaction.reply("Please provide a clan tag.");
-        const clanData = await getClanInfo(clanTag);
-        if (clanData.error) return interaction.reply(`❌ Error: ${clanData.error}`);
-        return interaction.reply(`🏰 **Clan Name:** ${clanData.name}\n🏆 **Clan Level:** ${clanData.clanLevel}\n🎖️ **Clan Points:** ${clanData.clanPoints}\n🔥 **War Win Streak:** ${clanData.warWinStreak}\n⚔️ **War Wins:** ${clanData.warWins}`);
-    }
-
-    if (commandName === "ask") {
-        const question = interaction.options.getString("question");
-        if (!question) return interaction.reply("Please provide a question.");
-        try {
-            const response = await openai.chat.completions.create({
-                model: "gpt-4o",
-                messages: [{ role: "user", content: question }]
-            });
-            return interaction.reply(response.choices[0].message.content);
-        } catch (error) {
-            console.error("OpenAI API Error:", error);
-            return interaction.reply("❌ Error: Unable to process your request.");
-        }
-    }
-
-    if (commandName === "roast") {
-        const target = interaction.options.getString("target") || interaction.user.username;
-        const roast = await roastUser(target);
-        return interaction.reply(roast);
-    }
-
-    if (commandName === "rps") {
-        const userChoice = interaction.options.getString("choice").toLowerCase();
-        if (!rpsChoices.includes(userChoice)) return interaction.reply("Invalid choice! Choose rock, paper, or scissors.");
-        const result = playRps(userChoice);
-        return interaction.reply(result);
+        const tag = options.getString("tag");
+        const data = await getClanInfo(tag);
+        if (data.error) return interaction.editReply(`❌ Error: ${data.error}`);
+        return interaction.editReply(`🏰 **Clan Name:** ${data.name}\n🏆 **Clan Level:** ${data.clanLevel}\n🎖️ **Clan Points:** ${data.clanPoints}\n🔥 **War Win Streak:** ${data.warWinStreak}\n⚔️ **War Wins:** ${data.warWins}`);
     }
 
     if (commandName === "leaderboard") {
         const topClans = await getTopClans();
-        if (topClans.error) return interaction.reply(`❌ Error: ${topClans.error}`);
-        const leaderboard = topClans.map((clan, index) => `${index + 1}. **${clan.name}** - ${clan.clanPoints} points`).join("\n");
-        return interaction.reply(`🏆 **Top 5 Global Clans:**\n${leaderboard}`);
+        if (topClans.error) return interaction.editReply(`❌ Error: ${topClans.error}`);
+        const leaderboard = topClans.map((clan, i) => `${i + 1}. **${clan.name}** - ${clan.clanPoints} points`).join("\n");
+        return interaction.editReply(`🏆 **Top 5 Global Clans:**\n${leaderboard}`);
+    }
+
+    if (commandName === "ask") {
+        const question = options.getString("question");
+        try {
+            const res = await openai.chat.completions.create({
+                model: "gpt-4o",
+                messages: [{ role: "user", content: question }]
+            });
+            return interaction.editReply(res.choices[0].message.content);
+        } catch (err) {
+            console.error("OpenAI Error:", err);
+            return interaction.editReply("❌ Error: Unable to process your request.");
+        }
+    }
+
+    if (commandName === "roast") {
+        const target = options.getString("target") || interaction.user.username;
+        const roast = await roastUser(target);
+        return interaction.editReply(roast);
+    }
+
+    if (commandName === "rps") {
+        const choice = options.getString("choice").toLowerCase();
+        if (!rpsChoices.includes(choice)) {
+            return interaction.editReply("Invalid choice. Choose rock, paper, or scissors.");
+        }
+        const result = playRps(choice);
+        return interaction.editReply(result);
     }
 
     if (commandName === "poster") {
-        const clanTag = interaction.options.getString("tag");
-        if (!clanTag) return interaction.reply("Please provide a clan tag.");
-        const warData = await getClanWarData(clanTag);
-        if (warData.error) return interaction.reply(`❌ Error: ${warData.error}`);
+        const tag = options.getString("tag");
+        const warData = await getClanWarData(tag);
+        if (warData.error) return interaction.editReply(`❌ Error: ${warData.error}`);
         const warStatus = warData.state === "inWar" ? "Currently at War" : "Not in a war right now";
-        return interaction.reply(`📅 **Clan War Status:** ${warStatus}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`);
+        return interaction.editReply(`📅 **Clan War Status:** ${warStatus}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`);
     }
 
-    // OCR command
-    if (commandName === "ocr") {
-        const imageUrl = interaction.options.getString("image");
-        if (!imageUrl) return interaction.reply("Please provide a valid image URL.");
-        const extractedText = await ocrImage(imageUrl);
-        return interaction.reply(extractedText);
-    }
-
-    // Summarize command
-    if (commandName === "summarise") {
-        const text = interaction.options.getString("text");
-        if (!text) return interaction.reply("Please provide the text you want summarized.");
-        const summary = await summarizeText(text);
-        return interaction.reply(summary);
+    if (commandName === "help") {
+        return interaction.editReply(
+            "**Available Slash Commands:**\n" +
+            "`/ping` - Check bot status\n" +
+            "`/player [tag]` - Get player info\n" +
+            "`/clan [tag]` - Get clan info\n" +
+            "`/leaderboard` - Top global clans\n" +
+            "`/ask [question]` - Ask OpenAI anything\n" +
+            "`/roast [target]` - Roast someone\n" +
+            "`/rps [choice]` - Rock Paper Scissors\n" +
+            "`/poster [tag]` - Clan war status"
+        );
     }
 });
 
