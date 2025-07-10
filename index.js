@@ -1,6 +1,6 @@
 const express = require("express");
 const app = express();
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionsBitField } = require("discord.js");
 const OpenAI = require("openai");
 const axios = require("axios");
 
@@ -126,7 +126,8 @@ client.once("ready", async () => {
             .addStringOption(option => option.setName("choice").setDescription("rock, paper, or scissors").setRequired(true)),
         new SlashCommandBuilder().setName("poster").setDescription("Get current war data for a clan.")
             .addStringOption(option => option.setName("tag").setDescription("Clan tag").setRequired(true)),
-        new SlashCommandBuilder().setName("help").setDescription("List all available commands.")
+        new SlashCommandBuilder().setName("help").setDescription("List all available commands."),
+        new SlashCommandBuilder().setName("remind").setDescription("Send a reminder message.")
     ].map(cmd => cmd.toJSON());
 
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
@@ -212,7 +213,18 @@ client.on("interactionCreate", async (interaction) => {
             "`/ask [question]` - Ask OpenAI anything\n" +
             "`/roast [target]` - Roast someone\n" +
             "`/rps [choice]` - Rock Paper Scissors\n" +
-            "`/poster [tag]` - Clan war status"
+            "`/poster [tag]` - Clan war status\n" +
+            "`/remind` - Send a reminder (Admin only)"
+        );
+    }
+
+    if (commandName === "remind") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return interaction.editReply("❌ You do not have permission to use this command.");
+        }
+
+        return interaction.editReply(
+            "We are still awaiting a response from you. Please respond at your earliest convenience.\n\nLost Family Team"
         );
     }
 });
