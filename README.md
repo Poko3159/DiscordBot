@@ -1,1 +1,1 @@
-# ClashBot
+# DiscordBot
