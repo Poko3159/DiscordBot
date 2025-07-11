@@ -3,6 +3,7 @@ const app = express();
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionsBitField } = require("discord.js");
 const OpenAI = require("openai");
 const axios = require("axios");
+const { DateTime } = require("luxon");
 
 // Express server for uptime monitoring
 app.get("/", (req, res) => {
@@ -22,89 +23,20 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const COC_API_KEY = process.env.COC_API_KEY;
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
-console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
-
 const rpsChoices = ["rock", "paper", "scissors"];
 
-// COC Helper Functions
-async function getPlayerInfo(playerTag) {
-    try {
-        const sanitizedTag = playerTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/players/%23${sanitizedTag}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data;
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching player data. Check the tag or API status." };
-    }
-}
+// Helper functions omitted for brevity (keep all your existing COC and OpenAI helper functions here)
 
-async function getClanInfo(clanTag) {
+async function sendClanReminder() {
     try {
-        const sanitizedTag = clanTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data;
+        const channel = await client.channels.fetch(process.env.GLOBAL_CHAT_CHANNEL_ID);
+        if (!channel) {
+            console.error("Global chat channel not found.");
+            return;
+        }
+        await channel.send("Hello! If you would like to apply for a Lost Family Clan, please navigate to the following channel - <#" + process.env.TICKETS_CHANNEL_ID + ">\n\nLost Family Team");
     } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching clan data. Check the tag or API status." };
-    }
-}
-
-async function getTopClans() {
-    try {
-        const response = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data.items.slice(0, 5);
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching global leaderboard." };
-    }
-}
-
-async function getClanWarData(clanTag) {
-    try {
-        const sanitizedTag = clanTag.replace("#", "");
-        const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/currentwar`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
-        });
-        return response.data;
-    } catch (error) {
-        console.error("COC API Error:", error.response?.data || error.message);
-        return { error: "Error fetching war data. Check the clan tag or API status." };
-    }
-}
-
-function playRps(userChoice) {
-    const botChoice = rpsChoices[Math.floor(Math.random() * rpsChoices.length)];
-    if (userChoice === botChoice) return `It's a tie! We both chose ${botChoice}.`;
-    if (
-        (userChoice === "rock" && botChoice === "scissors") ||
-        (userChoice === "paper" && botChoice === "rock") ||
-        (userChoice === "scissors" && botChoice === "paper")
-    ) {
-        return `You win! I chose ${botChoice}.`;
-    } else {
-        return `I win! I chose ${botChoice}.`;
-    }
-}
-
-async function roastUser(target) {
-    try {
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: "You are a humorous, sarcastic AI that generates funny but non-offensive roasts." },
-                { role: "user", content: `Roast ${target} in a funny but lighthearted way.` }
-            ]
-        });
-        return response.choices[0].message.content;
-    } catch (error) {
-        console.error("OpenAI Error:", error);
-        return "I couldn't roast them this time! Maybe they're just too nice?";
+        console.error("Error sending clan reminder:", error);
     }
 }
 
@@ -127,12 +59,21 @@ client.once("ready", async () => {
         new SlashCommandBuilder().setName("poster").setDescription("Get current war data for a clan.")
             .addStringOption(option => option.setName("tag").setDescription("Clan tag").setRequired(true)),
         new SlashCommandBuilder().setName("help").setDescription("List all available commands."),
-        new SlashCommandBuilder().setName("remind").setDescription("Send a reminder message.")
+        new SlashCommandBuilder().setName("remind").setDescription("Send a reminder message."),
+        new SlashCommandBuilder().setName("clans").setDescription("Send Lost Family Clan application reminder to global chat.")
     ].map(cmd => cmd.toJSON());
 
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log("✅ Slash commands registered globally.");
+
+    // Schedule message daily at 16:00 UK time
+    setInterval(() => {
+        const now = DateTime.now().setZone("Europe/London");
+        if (now.hour === 16 && now.minute === 0) {
+            sendClanReminder();
+        }
+    }, 60 * 1000); // check every minute
 });
 
 client.on("interactionCreate", async (interaction) => {
@@ -214,7 +155,8 @@ client.on("interactionCreate", async (interaction) => {
             "`/roast [target]` - Roast someone\n" +
             "`/rps [choice]` - Rock Paper Scissors\n" +
             "`/poster [tag]` - Clan war status\n" +
-            "`/remind` - Send a reminder (Admin only)"
+            "`/remind` - Send a reminder (Admin only)\n" +
+            "`/clans` - Send Lost Family Clan application reminder"
         );
     }
 
@@ -222,10 +164,15 @@ client.on("interactionCreate", async (interaction) => {
         if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
             return interaction.editReply("❌ You do not have permission to use this command.");
         }
+        const ticketsChannel = await client.channels.fetch(process.env.TICKETS_CHANNEL_ID);
+        if (!ticketsChannel) return interaction.editReply("Tickets channel not found.");
+        await ticketsChannel.send("Reminder: Please respond to your ticket if you’re awaiting a reply.");
+        return interaction.editReply("Reminder sent to the tickets channel.");
+    }
 
-        return interaction.editReply(
-            "We are still awaiting a response from you. Please respond at your earliest convenience.\n\nLost Family Team"
-        );
+    if (commandName === "clans") {
+        await sendClanReminder();
+        return interaction.editReply("Lost Family Clan application reminder sent to #global-chat.");
     }
 });
 
