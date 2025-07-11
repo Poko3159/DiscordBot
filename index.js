@@ -2,6 +2,7 @@ import { Client, GatewayIntentBits, PermissionsBitField, EmbedBuilder, Routes } 
 import { config } from "dotenv";
 import { REST } from "@discordjs/rest";
 import { DateTime } from "luxon";
+import express from "express";
 
 config();
 
@@ -13,13 +14,21 @@ const {
   TICKETS_CHANNEL_ID,
 } = process.env;
 
+// Setup Express server to keep Render happy
+const app = express();
+const PORT = process.env.PORT || 10000;
+app.get("/", (req, res) => res.send("Bot is running"));
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages],
 });
 
 const rest = new REST({ version: "10" }).setToken(DISCORD_TOKEN);
 
-// Slash commands to register
+// Register slash commands
 const commands = [
   {
     name: "clans",
@@ -29,9 +38,6 @@ const commands = [
     name: "remind",
     description: "Send ticket reminder message",
   },
-  // Add any other commands you had before here
-  // For example:
-  // { name: "othercommand", description: "Description" },
 ];
 
 (async () => {
@@ -47,6 +53,7 @@ const commands = [
 
 client.once("ready", () => {
   console.log(`Logged in as ${client.user.tag}!`);
+  scheduleDailyMessage(); // Schedule 4pm message
 });
 
 function isAdmin(member) {
@@ -56,33 +63,33 @@ function isAdmin(member) {
 function buildClansEmbed() {
   return new EmbedBuilder()
     .setColor(0x0099ff)
-    .setTitle("Clans Information")
+    .setTitle("🎯 Clans Information")
     .setDescription(
-      `Here is the clans info message.\n\n` +
-      `To apply for tickets, please go to <#${TICKETS_CHANNEL_ID}> and submit your request.`
+      `To apply for tickets, please head to <#${TICKETS_CHANNEL_ID}> and submit your request.\n\nGood luck!`
     )
     .setTimestamp()
-    .setFooter({ text: "Automated Clans Message" });
+    .setFooter({ text: "Lost Family Team" });
 }
 
 function buildRemindEmbed() {
   return new EmbedBuilder()
     .setColor(0xffa500)
-    .setTitle("Ticket Reminder")
+    .setTitle("⏰ Reminder")
     .setDescription(
-      `Please remember to respond to any open tickets in <#${TICKETS_CHANNEL_ID}>.`
+      "We are still awaiting a response from you. Please respond at your earliest convenience.\n\nLost Family Team"
     )
     .setTimestamp()
     .setFooter({ text: "Ticket Reminder" });
 }
 
+// Handle slash command interactions
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName, member, channel } = interaction;
 
-  // Admin check for /clans and /remind commands
-  if ((commandName === "clans" || commandName === "remind") && !isAdmin(member)) {
+  // Admin permission check
+  if (!isAdmin(member)) {
     return interaction.reply({
       content: "❌ You must have administrator permissions to use this command.",
       ephemeral: true,
@@ -91,20 +98,16 @@ client.on("interactionCreate", async (interaction) => {
 
   try {
     if (commandName === "clans") {
-      await interaction.deferReply();
-
+      await interaction.deferReply({ ephemeral: false });
       const embed = buildClansEmbed();
-
-      await interaction.editReply({ embeds: [embed] });
-    } else if (commandName === "remind") {
-      await interaction.deferReply();
-
-      const embed = buildRemindEmbed();
-
       await interaction.editReply({ embeds: [embed] });
     }
 
-    // Add other command handlers here, unchanged from your existing code
+    if (commandName === "remind") {
+      await interaction.deferReply({ ephemeral: false });
+      const embed = buildRemindEmbed();
+      await interaction.editReply({ embeds: [embed] });
+    }
   } catch (error) {
     console.error("Interaction error:", error);
     if (!interaction.replied && !interaction.deferred) {
@@ -112,12 +115,11 @@ client.on("interactionCreate", async (interaction) => {
         content: "❌ An error occurred while processing the command.",
         ephemeral: true,
       });
-    } else {
-      await interaction.editReply({ content: "❌ An error occurred." });
     }
   }
 });
 
+// Function to send clans message daily to GLOBAL_CHAT_CHANNEL_ID
 async function sendDailyClansMessage() {
   try {
     const channel = await client.channels.fetch(GLOBAL_CHAT_CHANNEL_ID);
@@ -125,6 +127,7 @@ async function sendDailyClansMessage() {
       console.error("Global chat channel not found.");
       return;
     }
+
     const embed = buildClansEmbed();
     await channel.send({ embeds: [embed] });
     console.log("✅ Sent daily clans message to global chat.");
@@ -133,6 +136,7 @@ async function sendDailyClansMessage() {
   }
 }
 
+// Schedule daily message at 4pm UK time
 function scheduleDailyMessage() {
   const now = DateTime.now().setZone("Europe/London");
   let next4pm = now.set({ hour: 16, minute: 0, second: 0, millisecond: 0 });
@@ -145,10 +149,8 @@ function scheduleDailyMessage() {
 
   setTimeout(async function dailySend() {
     await sendDailyClansMessage();
-    setTimeout(dailySend, 24 * 60 * 60 * 1000); // Schedule next run in 24 hours
+    setTimeout(dailySend, 24 * 60 * 60 * 1000); // Run every 24 hours
   }, delay);
 }
 
-client.login(DISCORD_TOKEN).then(() => {
-  scheduleDailyMessage();
-});
+client.login(DISCORD_TOKEN);
