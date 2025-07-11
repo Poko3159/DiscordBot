@@ -9,6 +9,7 @@
     "express": "^4.17.1",
     "openai": "^4.89.0",
     "tesseract.js": "^4.0.2"
+    "luxon": "^3.0.4"
   },
   "scripts": {
     "start": "node index.js"
