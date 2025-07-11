@@ -243,7 +243,7 @@ client.on("interactionCreate", async (interaction) => {
     if (commandName === "clans") {
         const embed = new EmbedBuilder()
             .setTitle("Clan Applications")
-                .setDescription(`To apply for a Lost Family clan, please go to <#${ticketsChannelId}> and submit your request.`)
+                .setDescription(`To apply for a Lost Family clan, please go to <#${ticketsChannelId}> and select Application from the selection.`)
             .setColor(0x00AE86);
 
         return interaction.editReply({ embeds: [embed] });
