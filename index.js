@@ -231,14 +231,17 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     if (commandName === "remind") {
-        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-            return interaction.editReply("❌ You do not have permission to use this command.");
-        }
-
-        return interaction.editReply(
-            "We are still awaiting a response from you. Please respond at your earliest convenience.\n\nLost Family Team"
-        );
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.editReply("❌ You do not have permission to use this command.");
     }
+
+    const embed = new EmbedBuilder()
+        .setTitle("⏰ Reminder")
+        .setDescription("We are still awaiting a response from you. Please respond at your earliest convenience.\n\nLost Family Team")
+        .setColor(0xFF0000); // Red
+
+    return interaction.editReply({ embeds: [embed] });
+}
 
     if (commandName === "clans") {
         const embed = new EmbedBuilder()
