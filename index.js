@@ -1,129 +1,103 @@
 const express = require("express");
 const app = express();
-const {
-  Client,
-  GatewayIntentBits,
-  REST,
-  Routes,
-  SlashCommandBuilder,
-  PermissionsBitField,
-  EmbedBuilder,
-} = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionsBitField, EmbedBuilder } = require("discord.js");
+const { DateTime } = require("luxon");
 const OpenAI = require("openai");
 const axios = require("axios");
-const { DateTime } = require("luxon");
-require("dotenv").config();
 
-// Express server
+// Express server for uptime monitoring
 app.get("/", (req, res) => {
-  res.send("Bot is alive!");
+    res.send("Bot is alive!");
 });
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Server running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
 
-// Discord client
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+const client = new Client({ 
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent] 
 });
 
-// OpenAI and CoC setup
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const COC_API_KEY = process.env.COC_API_KEY;
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
 
-// Embeds
-function createRecruitmentEmbed() {
-  return new EmbedBuilder()
-    .setColor(0x00AE86)
-    .setTitle("📬 Lost Family Recruitment")
-    .setDescription(
-      "If you would like to apply for a Lost Family Clan, please navigate to the following channel: <#CHANNEL_ID_TICKETS>\n\n— Lost Family Team"
-    );
+const GUILD_ID = process.env.GUILD_ID;
+const GLOBAL_CHAT_CHANNEL_ID = process.env.GLOBAL_CHAT_CHANNEL_ID;
+
+console.log('COC API Key loaded:', COC_API_KEY ? 'Yes' : 'No');
+
+async function sendClansMessage(channel) {
+    const embed = new EmbedBuilder()
+        .setColor("#0099ff")
+        .setTitle("Lost Family Clan Applications")
+        .setDescription("Hello! If you would like to apply for a Lost Family Clan, please navigate to the following channel - <#tickets-channel-id>") // replace tickets-channel-id with your actual Tickets channel ID or keep as text if you prefer
+        .setFooter({ text: "Lost Family Team" });
+    
+    await channel.send({ embeds: [embed] });
 }
 
-function createReminderEmbed() {
-  return new EmbedBuilder()
-    .setColor(0xF9A825)
-    .setTitle("⏰ Friendly Reminder")
-    .setDescription(
-      "We are still awaiting a response from you. Please respond at your earliest convenience.\n\n— Lost Family Team"
-    );
-}
-
-// Register slash commands
 client.once("ready", async () => {
-  console.log(`Logged in as ${client.user.tag}`);
+    console.log(`Logged in as ${client.user?.tag || "Unknown Bot"}!`);
 
-  const commands = [
-    new SlashCommandBuilder().setName("ping").setDescription("Check if the bot is alive."),
-    new SlashCommandBuilder().setName("player").setDescription("Get info about a player.")
-      .addStringOption(opt => opt.setName("tag").setDescription("Player tag").setRequired(true)),
-    new SlashCommandBuilder().setName("clan").setDescription("Get info about a clan.")
-      .addStringOption(opt => opt.setName("tag").setDescription("Clan tag").setRequired(true)),
-    new SlashCommandBuilder().setName("leaderboard").setDescription("Get top 5 global clans."),
-    new SlashCommandBuilder().setName("ask").setDescription("Ask any question to OpenAI.")
-      .addStringOption(opt => opt.setName("question").setDescription("Your question").setRequired(true)),
-    new SlashCommandBuilder().setName("roast").setDescription("Roast a user.")
-      .addStringOption(opt => opt.setName("target").setDescription("Target to roast")),
-    new SlashCommandBuilder().setName("rps").setDescription("Play Rock Paper Scissors.")
-      .addStringOption(opt => opt.setName("choice").setDescription("rock, paper, or scissors").setRequired(true)),
-    new SlashCommandBuilder().setName("poster").setDescription("Get current war data for a clan.")
-      .addStringOption(opt => opt.setName("tag").setDescription("Clan tag").setRequired(true)),
-    new SlashCommandBuilder().setName("help").setDescription("List all available commands."),
-    new SlashCommandBuilder().setName("remind").setDescription("Send a reminder message."),
-    new SlashCommandBuilder().setName("clans").setDescription("Send Lost Family application message."),
-  ];
+    // Register slash commands for guild (faster to update)
+    const commands = [
+        new SlashCommandBuilder().setName("ping").setDescription("Check if the bot is alive."),
+        new SlashCommandBuilder().setName("clans").setDescription("Send Lost Family clan application info."),
+        new SlashCommandBuilder().setName("remind").setDescription("Send a reminder message."),
+        // ... Add your other commands here ...
+    ].map(cmd => cmd.toJSON());
 
-  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-  await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands.map(c => c.toJSON()) });
-  console.log("✅ Slash commands registered.");
+    const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+    await rest.put(Routes.applicationGuildCommands(client.user.id, GUILD_ID), { body: commands });
+    console.log("✅ Slash commands registered for guild.");
+
+    // Schedule daily 4pm UK time message to global chat
+    setInterval(async () => {
+        const now = DateTime.now().setZone("Europe/London");
+        if (now.hour === 16 && now.minute === 0) {  // 16:00 UK time
+            try {
+                const guild = await client.guilds.fetch(GUILD_ID);
+                const channel = await guild.channels.fetch(GLOBAL_CHAT_CHANNEL_ID);
+                if (!channel) return console.warn("Global chat channel not found.");
+                await sendClansMessage(channel);
+                console.log("✅ Sent daily clans message to global chat.");
+            } catch (error) {
+                console.error("Error sending scheduled clans message:", error);
+            }
+        }
+    }, 60 * 1000); // Check every minute
 });
 
-// Handle slash commands
-client.on("interactionCreate", async interaction => {
-  if (!interaction.isChatInputCommand()) return;
-  const { commandName, options } = interaction;
-  await interaction.deferReply({ ephemeral: true });
+client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
 
-  if (commandName === "ping") {
-    return interaction.editReply("🏓 Pong!");
-  }
+    const { commandName } = interaction;
 
-  if (commandName === "remind") {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return interaction.editReply("❌ You do not have permission to use this command.");
+    if (commandName === "ping") {
+        await interaction.reply("🏓 Pong!");
     }
-    await interaction.channel.send({ embeds: [createReminderEmbed()] });
-    return interaction.editReply("✅ Reminder sent.");
-  }
 
-  if (commandName === "clans") {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return interaction.editReply("❌ You do not have permission to use this command.");
+    if (commandName === "clans") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return interaction.reply({ content: "❌ You do not have permission to use this command.", ephemeral: true });
+        }
+        // Send embed message in the channel where command was used
+        await sendClansMessage(interaction.channel);
+        await interaction.reply({ content: "✅ Lost Family clan application info sent!", ephemeral: true });
     }
-    await interaction.channel.send({ embeds: [createRecruitmentEmbed()] });
-    return interaction.editReply("✅ Recruitment message sent to this channel.");
-  }
 
-  // ... (Other commands like player, clan, leaderboard, etc. remain unchanged)
+    if (commandName === "remind") {
+        if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+            return interaction.reply({ content: "❌ You do not have permission to use this command.", ephemeral: true });
+        }
+        const embed = new EmbedBuilder()
+            .setColor("#ff0000")
+            .setTitle("Reminder")
+            .setDescription("We are still awaiting a response from you. Please respond at your earliest convenience.\n\nLost Family Team");
+        await interaction.reply({ embeds: [embed], ephemeral: false });
+    }
 });
-
-// Schedule daily message at 4PM UK time
-setInterval(async () => {
-  const now = DateTime.now().setZone("Europe/London");
-  if (now.hour === 16 && now.minute === 0) {
-    try {
-      const channel = await client.channels.fetch(process.env.GLOBAL_CHAT_CHANNEL_ID);
-      if (channel) {
-        await channel.send({ embeds: [createRecruitmentEmbed()] });
-        console.log("✅ Daily /clans message sent.");
-      }
-    } catch (error) {
-      console.error("❌ Failed to send scheduled message:", error.message);
-    }
-  }
-}, 60 * 1000);
 
 client.login(process.env.DISCORD_TOKEN);
