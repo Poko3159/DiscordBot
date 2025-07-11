@@ -244,13 +244,17 @@ client.on("interactionCreate", async (interaction) => {
 }
 
     if (commandName === "clans") {
-        const embed = new EmbedBuilder()
-            .setTitle("Clan Applications")
-                .setDescription(`To apply for a Lost Family clan, please go to <#${ticketsChannelId}> and select Application from the selection.`)
-            .setColor(0x00AE86);
-
-        return interaction.editReply({ embeds: [embed] });
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.editReply("❌ You do not have permission to use this command.");
     }
+
+    const embed = new EmbedBuilder()
+        .setTitle("Clan Applications")
+        .setDescription(`To apply for a Lost Family clan, please go to <#${ticketsChannelId}> and submit your request.`)
+        .setColor(0x00AE86);
+
+    return interaction.editReply({ embeds: [embed] });
+}
 });
 
 client.login(process.env.DISCORD_TOKEN);
