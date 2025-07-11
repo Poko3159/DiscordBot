@@ -22,6 +22,8 @@ app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server is running on port ${PORT}`);
 });
 
+const ticketsChannelId = process.env.TICKETS_CHANNEL_ID;
+
 const client = new Client({
     intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
@@ -241,7 +243,7 @@ client.on("interactionCreate", async (interaction) => {
     if (commandName === "clans") {
         const embed = new EmbedBuilder()
             .setTitle("Clan Applications")
-            .setDescription(`To apply for a Lost Family clan, please go to <#${process.env.TICKET_CHANNEL_ID}> and submit your request.`)
+                .setDescription(`To apply for a Lost Family clan, please go to <#${ticketsChannelId}> and submit your request.`)
             .setColor(0x00AE86);
 
         return interaction.editReply({ embeds: [embed] });
