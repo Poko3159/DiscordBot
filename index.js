@@ -162,91 +162,103 @@ client.once("ready", async () => {
     }, 60 * 1000);
 });
 
-// === Slash Commands Handler ===
+// === Interaction Handler ===
 client.on("interactionCreate", async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
+
+    const { commandName, options } = interaction;
 
     try {
         await interaction.deferReply();
 
-        const { commandName, options } = interaction;
+        switch (commandName) {
+            case "ping":
+                return await interaction.editReply("🏓 Pong!");
 
-        if (commandName === "ping") return interaction.editReply("🏓 Pong!");
-
-        if (commandName === "player") {
-            const tag = options.getString("tag");
-            const data = await getPlayerInfo(tag);
-            return interaction.editReply(data.error ? `❌ ${data.error}` :
-                `🏆 **Player Name:** ${data.name}\n🏰 **Town Hall:** ${data.townHallLevel}\n⭐ **Trophies:** ${data.trophies}\n⚔️ **War Stars:** ${data.warStars}\n🎖️ **Clan:** ${data.clan?.name || "No Clan"}\n🛠️ **XP:** ${data.expLevel}`);
-        }
-
-        if (commandName === "clan") {
-            const tag = options.getString("tag");
-            const data = await getClanInfo(tag);
-            return interaction.editReply(data.error ? `❌ ${data.error}` :
-                `🏰 **Clan Name:** ${data.name}\n🏆 **Level:** ${data.clanLevel}\n🎖️ **Points:** ${data.clanPoints}\n🔥 **Streak:** ${data.warWinStreak}\n⚔️ **Wins:** ${data.warWins}`);
-        }
-
-        if (commandName === "leaderboard") {
-            const topClans = await getTopClans();
-            return interaction.editReply(topClans.error ? `❌ ${topClans.error}` :
-                `🏆 **Top Clans:**\n${topClans.map((clan, i) => `${i + 1}. **${clan.name}** - ${clan.clanPoints} pts`).join("\n")}`);
-        }
-
-        if (commandName === "ask") {
-            const question = options.getString("question");
-            const res = await openai.chat.completions.create({
-                model: "gpt-4o",
-                messages: [{ role: "user", content: question }],
-            });
-            return interaction.editReply(res.choices[0].message.content);
-        }
-
-        if (commandName === "roast") {
-            const target = options.getString("target") || interaction.user.username;
-            return interaction.editReply(await roastUser(target));
-        }
-
-        if (commandName === "rps") {
-            const choice = options.getString("choice").toLowerCase();
-            if (!rpsChoices.includes(choice)) return interaction.editReply("Invalid choice. Choose rock, paper, or scissors.");
-            return interaction.editReply(playRps(choice));
-        }
-
-        if (commandName === "poster") {
-            const tag = options.getString("tag");
-            const warData = await getClanWarData(tag);
-            return interaction.editReply(warData.error ? `❌ ${warData.error}` :
-                `📅 **Status:** ${warData.state === "inWar" ? "In War" : "Not in war"}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`);
-        }
-
-        if (commandName === "help") {
-            return interaction.editReply(`**Commands Available:**\n/ping\n/player [tag]\n/clan [tag]\n/leaderboard\n/ask [question]\n/roast [target]\n/rps [choice]\n/poster [tag]\n/remind\n/clans`);
-        }
-
-        if (commandName === "remind") {
-            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-                return interaction.editReply("❌ You do not have permission.");
+            case "player": {
+                const tag = options.getString("tag");
+                const data = await getPlayerInfo(tag);
+                return await interaction.editReply(data.error ? `❌ ${data.error}` :
+                    `🏆 **Player Name:** ${data.name}\n🏰 **Town Hall:** ${data.townHallLevel}\n⭐ **Trophies:** ${data.trophies}\n⚔️ **War Stars:** ${data.warStars}\n🎖️ **Clan:** ${data.clan?.name || "No Clan"}\n🛠️ **XP:** ${data.expLevel}`);
             }
-            const embed = new EmbedBuilder()
-                .setTitle("⏰ Reminder")
-                .setDescription("We are still awaiting a response from you. Please respond at your earliest convenience.\n\nLost Family Team")
-                .setColor(0xFF0000);
-            return interaction.editReply({ embeds: [embed] });
-        }
 
-        if (commandName === "clans") {
-            if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-                return interaction.editReply("❌ You do not have permission.");
+            case "clan": {
+                const tag = options.getString("tag");
+                const data = await getClanInfo(tag);
+                return await interaction.editReply(data.error ? `❌ ${data.error}` :
+                    `🏰 **Clan Name:** ${data.name}\n🏆 **Level:** ${data.clanLevel}\n🎖️ **Points:** ${data.clanPoints}\n🔥 **Streak:** ${data.warWinStreak}\n⚔️ **Wins:** ${data.warWins}`);
             }
-            const embed = new EmbedBuilder()
-                .setTitle("Clan Applications")
-                .setDescription(`To apply for a Lost Family clan, please go to <#${ticketsChannelId}> and select application from the ticket dropdown.`)
-                .setColor(0x00AE86);
-            return interaction.editReply({ embeds: [embed] });
+
+            case "leaderboard": {
+                const topClans = await getTopClans();
+                return await interaction.editReply(topClans.error ? `❌ ${topClans.error}` :
+                    `🏆 **Top Clans:**\n${topClans.map((clan, i) => `${i + 1}. **${clan.name}** - ${clan.clanPoints} pts`).join("\n")}`);
+            }
+
+            case "ask": {
+                const question = options.getString("question");
+                const res = await openai.chat.completions.create({
+                    model: "gpt-4o",
+                    messages: [{ role: "user", content: question }],
+                });
+                return await interaction.editReply(res.choices[0].message.content);
+            }
+
+            case "roast": {
+                const target = options.getString("target") || interaction.user.username;
+                return await interaction.editReply(await roastUser(target));
+            }
+
+            case "rps": {
+                const choice = options.getString("choice").toLowerCase();
+                if (!rpsChoices.includes(choice)) return await interaction.editReply("Invalid choice. Choose rock, paper, or scissors.");
+                return await interaction.editReply(playRps(choice));
+            }
+
+            case "poster": {
+                const tag = options.getString("tag");
+                const warData = await getClanWarData(tag);
+                return await interaction.editReply(warData.error ? `❌ ${warData.error}` :
+                    `📅 **Status:** ${warData.state === "inWar" ? "In War" : "Not in war"}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`);
+            }
+
+            case "help":
+                return await interaction.editReply(`**Commands Available:**\n/ping\n/player [tag]\n/clan [tag]\n/leaderboard\n/ask [question]\n/roast [target]\n/rps [choice]\n/poster [tag]\n/remind\n/clans`);
+
+            case "remind":
+                if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                    return await interaction.editReply("❌ You do not have permission.");
+                }
+                const remindEmbed = new EmbedBuilder()
+                    .setTitle("⏰ Reminder")
+                    .setDescription("We are still awaiting a response from you. Please respond at your earliest convenience.\n\nLost Family Team")
+                    .setColor(0xFF0000);
+                return await interaction.editReply({ embeds: [remindEmbed] });
+
+            case "clans":
+                if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+                    return await interaction.editReply("❌ You do not have permission.");
+                }
+                const clansEmbed = new EmbedBuilder()
+                    .setTitle("Clan Applications")
+                    .setDescription(`To apply for a Lost Family clan, please go to <#${ticketsChannelId}> and select application from the ticket dropdown.`)
+                    .setColor(0x00AE86);
+                return await interaction.editReply({ embeds: [clansEmbed] });
+
+            default:
+                return await interaction.editReply("❌ Unknown command.");
         }
     } catch (err) {
-        console.error("❌ Interaction Error:", err);
+        console.error("❌ General Interaction Error:", err);
+        try {
+            if (interaction.deferred || interaction.replied) {
+                await interaction.editReply("❌ Something went wrong.");
+            } else {
+                await interaction.reply("❌ Something went wrong.");
+            }
+        } catch (replyErr) {
+            console.error("❌ Failed to send fallback error reply:", replyErr);
+        }
     }
 });
 
