@@ -194,17 +194,12 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (commandName === "ask") {
-            try {
-                const question = options.getString("question");
-                const res = await openai.chat.completions.create({
-                    model: "gpt-4o",
-                    messages: [{ role: "user", content: question }],
-                });
-                return interaction.editReply(res.choices[0].message.content);
-            } catch (err) {
-                console.error("OpenAI Error:", err);
-                return interaction.editReply("❌ Error processing your request.");
-            }
+            const question = options.getString("question");
+            const res = await openai.chat.completions.create({
+                model: "gpt-4o",
+                messages: [{ role: "user", content: question }],
+            });
+            return interaction.editReply(res.choices[0].message.content);
         }
 
         if (commandName === "roast") {
@@ -250,20 +245,8 @@ client.on("interactionCreate", async (interaction) => {
                 .setColor(0x00AE86);
             return interaction.editReply({ embeds: [embed] });
         }
-
     } catch (err) {
-        console.error("❌ Interaction handler error:", err);
-
-        try {
-            if (!interaction.replied) {
-                await interaction.reply({
-                    content: "❌ Something went wrong while processing your command.",
-                    ephemeral: true,
-                });
-            }
-        } catch (replyErr) {
-            console.error("❌ Failed to send fallback interaction reply:", replyErr);
-        }
+        console.error("❌ Interaction Error:", err);
     }
 });
 
