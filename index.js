@@ -36,6 +36,91 @@ const COC_API_KEY = process.env.COC_API_KEY;
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
 const rpsChoices = ["rock", "paper", "scissors"];
 
+// === Slash Command Definitions ===
+const commands = [
+  new SlashCommandBuilder().setName("help").setDescription("Show this help message"),
+  new SlashCommandBuilder()
+    .setName("members")
+    .setDescription("Get clan members")
+    .addStringOption(option =>
+      option.setName("tag")
+        .setDescription("Clan tag")
+        .setRequired(true)
+    ),
+  new SlashCommandBuilder().setName("ping").setDescription("Check if the bot is alive"),
+  new SlashCommandBuilder()
+    .setName("player")
+    .setDescription("Get info about a player")
+    .addStringOption(option =>
+      option.setName("tag")
+        .setDescription("Player tag")
+        .setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("clan")
+    .setDescription("Get info about a clan")
+    .addStringOption(option =>
+      option.setName("tag")
+        .setDescription("Clan tag")
+        .setRequired(true)
+    ),
+  new SlashCommandBuilder().setName("leaderboard").setDescription("Get top 5 global clans"),
+  new SlashCommandBuilder()
+    .setName("ask")
+    .setDescription("Ask a question to OpenAI")
+    .addStringOption(option =>
+      option.setName("question")
+        .setDescription("Your question")
+        .setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("roast")
+    .setDescription("Roast a user")
+    .addStringOption(option =>
+      option.setName("target")
+        .setDescription("User to roast")
+        .setRequired(false)
+    ),
+  new SlashCommandBuilder()
+    .setName("rps")
+    .setDescription("Play Rock Paper Scissors")
+    .addStringOption(option =>
+      option.setName("choice")
+        .setDescription("rock, paper, or scissors")
+        .setRequired(true)
+        .addChoices(
+          { name: "rock", value: "rock" },
+          { name: "paper", value: "paper" },
+          { name: "scissors", value: "scissors" }
+        )
+    ),
+  new SlashCommandBuilder()
+    .setName("poster")
+    .setDescription("Get current war data for a clan")
+    .addStringOption(option =>
+      option.setName("tag")
+        .setDescription("Clan tag")
+        .setRequired(true)
+    ),
+  new SlashCommandBuilder().setName("remind").setDescription("Send a reminder message (admin only)"),
+  new SlashCommandBuilder().setName("clans").setDescription("Info on how to apply for Lost Family clans (admin only)"),
+];
+
+// Register commands with Discord REST API
+(async () => {
+    try {
+        console.log("Started refreshing application (/) commands.");
+        const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+        await rest.put(
+            Routes.applicationCommands(process.env.CLIENT_ID),
+            { body: commands.map(command => command.toJSON()) }
+        );
+        console.log("Successfully reloaded application (/) commands.");
+    } catch (error) {
+        console.error(error);
+    }
+})();
+
 // === COC Helper Functions ===
 async function getPlayerInfo(playerTag) {
     try {
@@ -109,21 +194,44 @@ client.on("interactionCreate", async (interaction) => {
         await interaction.deferReply();
 
         switch (commandName) {
+            case "help": {
+                const helpText = `
+**Available Commands:**
+/help - Show this help message
+/members [tag] - List clan members with pagination and Excel export
+/ping - Check if the bot is alive
+/player [tag] - Get info about a player
+/clan [tag] - Get info about a clan
+/leaderboard - Get top 5 global clans
+/ask [question] - Ask a question to OpenAI
+/roast [target] - Roast a user
+/rps [choice] - Play Rock Paper Scissors
+/poster [tag] - Get current war data for a clan
+/remind - Send a reminder message (admin only)
+/clans - Info on how to apply for Lost Family clans (admin only)
+`;
+                return await interaction.editReply(helpText);
+            }
+
             case "ping":
                 return await interaction.editReply("🏓 Pong!");
 
             case "player": {
                 const tag = options.getString("tag");
                 const data = await getPlayerInfo(tag);
-                return await interaction.editReply(data.error ? `❌ ${data.error}` :
-                    `🏆 **Player Name:** ${data.name}\n🏰 **Town Hall:** ${data.townHallLevel}\n⭐ **Trophies:** ${data.trophies}\n⚔️ **War Stars:** ${data.warStars}\n🎖️ **Clan:** ${data.clan?.name || "No Clan"}\n🛠️ **XP:** ${data.expLevel}`);
+                if (data.error) return interaction.editReply(`❌ ${data.error}`);
+                return await interaction.editReply(
+                    `🏆 **Player Name:** ${data.name}\n🏰 **Town Hall:** ${data.townHallLevel}\n⭐ **Trophies:** ${data.trophies}\n⚔️ **War Stars:** ${data.warStars}\n🎖️ **Clan:** ${data.clan?.name || "No Clan"}\n🛠️ **XP:** ${data.expLevel}`
+                );
             }
 
             case "clan": {
                 const tag = options.getString("tag");
                 const data = await getClanInfo(tag);
-                return await interaction.editReply(data.error ? `❌ ${data.error}` :
-                    `🏰 **Clan Name:** ${data.name}\n🏆 **Level:** ${data.clanLevel}\n🎖️ **Points:** ${data.clanPoints}\n🔥 **Streak:** ${data.warWinStreak}\n⚔️ **Wins:** ${data.warWins}`);
+                if (data.error) return interaction.editReply(`❌ ${data.error}`);
+                return await interaction.editReply(
+                    `🏰 **Clan Name:** ${data.name}\n🏆 **Level:** ${data.clanLevel}\n🎖️ **Points:** ${data.clanPoints}\n🔥 **Streak:** ${data.warWinStreak}\n⚔️ **Wins:** ${data.warWins}`
+                );
             }
 
             case "leaderboard": {
@@ -131,7 +239,9 @@ client.on("interactionCreate", async (interaction) => {
                     headers: { Authorization: `Bearer ${COC_API_KEY}` },
                 });
                 const topClans = response.data.items.slice(0, 5);
-                return await interaction.editReply(`🏆 **Top Clans:**\n${topClans.map((clan, i) => `${i + 1}. **${clan.name}** - ${clan.clanPoints} pts`).join("\n")}`);
+                return await interaction.editReply(
+                    `🏆 **Top Clans:**\n${topClans.map((clan, i) => `${i + 1}. **${clan.name}** - ${clan.clanPoints} pts`).join("\n")}`
+                );
             }
 
             case "ask": {
@@ -172,13 +282,17 @@ client.on("interactionCreate", async (interaction) => {
             case "poster": {
                 const tag = options.getString("tag");
                 const sanitizedTag = tag.replace("#", "");
-                const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/currentwar`, {
-                    headers: { Authorization: `Bearer ${COC_API_KEY}` },
-                });
-                const warData = response.data;
-                return await interaction.editReply(
-                    `📅 **Status:** ${warData.state === "inWar" ? "In War" : "Not in war"}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`
-                );
+                try {
+                    const response = await axios.get(`${COC_BASE_URL}/clans/%23${sanitizedTag}/currentwar`, {
+                        headers: { Authorization: `Bearer ${COC_API_KEY}` },
+                    });
+                    const warData = response.data;
+                    return await interaction.editReply(
+                        `📅 **Status:** ${warData.state === "inWar" ? "In War" : "Not in war"}\n🛡️ **Opponent:** ${warData.opponent.name}\n⚔️ **Clan Wins:** ${warData.clan.winCount}\n🔥 **Opponent Wins:** ${warData.opponent.winCount}`
+                    );
+                } catch {
+                    return await interaction.editReply("❌ Error fetching war data or no current war.");
+                }
             }
 
             case "remind":
@@ -231,64 +345,40 @@ client.on("interactionCreate", async (interaction) => {
                 const collector = msg.createMessageComponentCollector({ componentType: ComponentType.Button, time: 60000 });
 
                 collector.on("collect", async i => {
-                    if (i.user.id !== interaction.user.id) return i.reply({ content: "Not your session.", ephemeral: true });
-
-                    if (i.customId === "prev") page = (page - 1 + pages) % pages;
-                    if (i.customId === "next") page = (page + 1) % pages;
-                    if (i.customId === "export") {
-                        const file = await generateExcel(clanData.name, members);
-                        return await i.reply({ content: "📁 Exported Excel file:", files: [file], ephemeral: true });
+                    if (i.user.id !== interaction.user.id) {
+                        return i.reply({ content: "This is not your session.", ephemeral: true });
                     }
-
-                    const updated = new EmbedBuilder()
+                    if (i.customId === "prev") {
+                        page = page > 0 ? page - 1 : pages - 1;
+                    } else if (i.customId === "next") {
+                        page = page < pages - 1 ? page + 1 : 0;
+                    } else if (i.customId === "export") {
+                        collector.stop();
+                        const attachment = await generateExcel(clanData.name, members);
+                        return await i.update({ content: "Here is the Excel file:", files: [attachment], embeds: [], components: [] });
+                    }
+                    const updatedEmbed = new EmbedBuilder()
                         .setTitle(`${clanData.name} Members (Page ${page + 1}/${pages})`)
                         .setDescription(paginateMembers(members, pageSize, page).map(m =>
                             `**${m.name}** (${m.role}) — ${m.trophies} 🏆`).join("\n"))
                         .setColor(0x3498db);
-                    await i.update({ embeds: [updated], components: [row] });
+                    await i.update({ embeds: [updatedEmbed], components: [row] });
                 });
 
-                collector.on("end", () => {
-                    msg.edit({ components: [] }).catch(() => {});
+                collector.on("end", async () => {
+                    await msg.edit({ components: [] });
                 });
+
                 break;
             }
 
-            case "help": {
-                const helpEmbed = new EmbedBuilder()
-                    .setTitle("Help — List of Commands")
-                    .setColor(0x00AE86)
-                    .setDescription([
-                        "/ping — Check if the bot is alive.",
-                        "/player [tag] — Get info about a player.",
-                        "/clan [tag] — Get info about a clan.",
-                        "/leaderboard — Get top 5 global clans.",
-                        "/ask [question] — Ask any question to OpenAI.",
-                        "/roast [target] — Roast a user.",
-                        "/rps [choice] — Play Rock Paper Scissors.",
-                        "/poster [tag] — Get current war data for a clan.",
-                        "/remind — Send a reminder message (admin only).",
-                        "/clans — Info on how to apply for Lost Family clans (admin only).",
-                        "/members [tag] — Get clan members in pages or export Excel.",
-                        "/help — Show this help message."
-                    ].join("\n"))
-                    .setFooter({ text: "Lost Family Bot" });
-
-                return await interaction.editReply({ embeds: [helpEmbed] });
-            }
-
             default:
-                return await interaction.editReply("❌ Unknown command.");
+                return await interaction.editReply("Unknown command.");
         }
-    } catch (err) {
-        console.error("❌ Error:", err);
-        if (interaction.deferred || interaction.replied) {
-            await interaction.editReply("❌ Something went wrong.");
-        } else {
-            await interaction.reply("❌ Something went wrong.");
-        }
+    } catch (error) {
+        console.error(error);
+        await interaction.editReply("An error occurred while processing your command.");
     }
 });
 
-// === Start Bot ===
 client.login(process.env.DISCORD_TOKEN);
