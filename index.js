@@ -1,3 +1,5 @@
+Dev part 3
+
 const express = require("express");
 const { DateTime } = require("luxon");
 const {
@@ -14,7 +16,7 @@ const {
 } = require("discord.js");
 const OpenAI = require("openai");
 const axios = require("axios");
-const cron = require("node-cron");
+const fs = require("fs");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -30,12 +32,23 @@ const COC_API_KEY = process.env.COC_API_KEY;
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
 const ticketsChannelId = process.env.TICKETS_CHANNEL_ID;
 const reminderChannelId = process.env.REMINDER_CHANNEL_ID;
+const REMINDER_FILE = "./reminders.json";
 const rpsChoices = ["rock", "paper", "scissors"];
 const eightBallResponses = [
     "Yes.", "No.", "Definitely.", "Absolutely not.", "Ask again later.",
     "It is certain.", "Very doubtful.", "Without a doubt.", "Better not tell you now."
 ];
 let lastReminderMessageId = null;
+
+// === Reminder Storage ===
+function loadReminders() {
+    if (!fs.existsSync(REMINDER_FILE)) return {};
+    return JSON.parse(fs.readFileSync(REMINDER_FILE));
+}
+
+function saveReminders(data) {
+    fs.writeFileSync(REMINDER_FILE, JSON.stringify(data, null, 2));
+}
 
 // === Helper Functions ===
 async function getPlayerInfo(tag) {
@@ -109,27 +122,18 @@ async function roastUser(target) {
     }
 }
 
-async function translateText(text, targetLang) {
+async function aiTransform(prompt, input) {
     try {
         const res = await openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
-                { role: "system", content: `Translate the following text to ${targetLang}.` },
-                { role: "user", content: text }
+                { role: "system", content: prompt },
+                { role: "user", content: input }
             ]
         });
         return res.choices[0].message.content;
     } catch {
-        return "Translation failed.";
-    }
-}
-
-function getTimeInZone(zone) {
-    try {
-        const now = DateTime.now().setZone(zone);
-        return now.toFormat("cccc, dd LLL yyyy HH:mm ZZZZ");
-    } catch {
-        return "Invalid timezone.";
+        return "AI transformation failed.";
     }
 }
 
@@ -190,7 +194,6 @@ async function postApplicationReminder(channel) {
         console.error("Reminder post error:", err);
     }
 }
-// === Bot Ready and Command Registration ===
 client.once("ready", async () => {
     console.log(`✅ Logged in as ${client.user?.tag}!`);
 
@@ -215,20 +218,17 @@ client.once("ready", async () => {
         new SlashCommandBuilder().setName("remindme").setDescription("Set a personal reminder.")
             .addStringOption(opt => opt.setName("time").setDescription("Time in minutes").setRequired(true))
             .addStringOption(opt => opt.setName("message").setDescription("Reminder message").setRequired(true)),
-        new SlashCommandBuilder().setName("translate").setDescription("Translate text to another language.")
-            .addStringOption(opt => opt.setName("text").setDescription("Text to translate").setRequired(true))
-            .addStringOption(opt => opt.setName("language").setDescription("Target language").setRequired(true)),
-        new SlashCommandBuilder().setName("avatar").setDescription("Show a user's avatar.")
-            .addUserOption(opt => opt.setName("user").setDescription("User to show")),
-        new SlashCommandBuilder().setName("userinfo").setDescription("Show info about a user.")
-            .addUserOption(opt => opt.setName("user").setDescription("User to inspect")),
-        new SlashCommandBuilder().setName("serverinfo").setDescription("Show info about this server."),
-        new SlashCommandBuilder().setName("8ball").setDescription("Ask the magic 8-ball a question.")
-            .addStringOption(opt => opt.setName("question").setDescription("Your question").setRequired(true)),
-        new SlashCommandBuilder().setName("poll").setDescription("Create a quick poll.")
-            .addStringOption(opt => opt.setName("question").setDescription("Poll question").setRequired(true))
-            .addStringOption(opt => opt.setName("option1").setDescription("First option").setRequired(true))
-            .addStringOption(opt => opt.setName("option2").setDescription("Second option").setRequired(true))
+        new SlashCommandBuilder().setName("listreminders").setDescription("List your active reminders."),
+        new SlashCommandBuilder().setName("cancelreminder").setDescription("Cancel a reminder.")
+            .addStringOption(opt => opt.setName("id").setDescription("Reminder ID").setRequired(true)),
+        new SlashCommandBuilder().setName("summarise").setDescription("Summarise a block of text.")
+            .addStringOption(opt => opt.setName("text").setDescription("Text to summarise").setRequired(true)),
+        new SlashCommandBuilder().setName("replysuggest").setDescription("Suggest a reply to a message.")
+            .addStringOption(opt => opt.setName("text").setDescription("Message to reply to").setRequired(true)),
+        new SlashCommandBuilder().setName("fixgrammar").setDescription("Fix grammar and clarity.")
+            .addStringOption(opt => opt.setName("text").setDescription("Text to improve").setRequired(true)),
+        new SlashCommandBuilder().setName("purge").setDescription("Delete recent messages.")
+            .addIntegerOption(opt => opt.setName("count").setDescription("Number of messages to delete").setRequired(true))
     ].map(cmd => cmd.toJSON());
 
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
@@ -236,16 +236,15 @@ client.once("ready", async () => {
     console.log("✅ Slash commands registered.");
 });
 
-// === Interaction Handler ===
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    const { commandName, options, user, guild } = interaction;
+    const { commandName, options, user, guild, channel } = interaction;
 
     try {
         if (commandName === "ping") {
             await interaction.reply("🏓 Pong! I'm alive.");
         } else if (commandName === "help") {
-            await interaction.reply("Available commands: /ping /help /player /clan /leaderboard /ask /roast /rps /poster /remind /clans /remindme /translate /avatar /userinfo /serverinfo /8ball /poll");
+            await interaction.reply("Available commands: /ping /help /player /clan /leaderboard /ask /roast /rps /poster /remind /clans /remindme /listreminders /cancelreminder /summarise /replysuggest /fixgrammar /purge");
         } else if (commandName === "player") {
             const tag = options.getString("tag");
             const info = await getPlayerInfo(tag);
@@ -282,50 +281,67 @@ client.on("interactionCreate", async interaction => {
             if (war.error) return await interaction.reply(war.error);
             await interaction.reply(`⚔️ War Status: ${war.state}\nStars: ${war.clan.stars} vs ${war.opponent.stars}`);
         } else if (commandName === "remind") {
-            const channel = await client.channels.fetch(reminderChannelId);
-            await postApplicationReminder(channel);
+            const reminderChannel = await client.channels.fetch(reminderChannelId);
+            await postApplicationReminder(reminderChannel);
             await interaction.reply("✅ Reminder sent.");
         } else if (commandName === "clans") {
             await interaction.reply(`📢 To apply for a Lost Family clan, head to <#${ticketsChannelId}> and open a Clan Application ticket.`);
         } else if (commandName === "remindme") {
             const minutes = parseInt(options.getString("time"));
             const message = options.getString("message");
+            const userId = user.id;
+            const reminders = loadReminders();
+
+            const reminder = {
+                id: Date.now().toString(),
+                message,
+                time: Date.now() + minutes * 60000
+            };
+
+            if (!reminders[userId]) reminders[userId] = [];
+            reminders[userId].push(reminder);
+            saveReminders(reminders);
+
             await interaction.reply(`⏳ Reminder set for ${minutes} minutes.`);
+
             setTimeout(() => {
                 interaction.followUp({ content: `🔔 Reminder: ${message}`, ephemeral: true });
             }, minutes * 60000);
-        } else if (commandName === "translate") {
+        } else if (commandName === "listreminders") {
+            const reminders = loadReminders()[user.id] || [];
+            if (!reminders.length) return await interaction.reply("📭 You have no active reminders.");
+            const list = reminders.map(r => `• ID: ${r.id} – ${r.message}`).join("\n");
+            await interaction.reply(`📋 Your reminders:\n${list}`);
+        } else if (commandName === "cancelreminder") {
+            const id = options.getString("id");
+            const reminders = loadReminders();
+            const userReminders = reminders[user.id] || [];
+            const updated = userReminders.filter(r => r.id !== id);
+            if (updated.length === userReminders.length) return await interaction.reply("❌ No reminder found with that ID.");
+            reminders[user.id] = updated;
+            saveReminders(reminders);
+            await interaction.reply("✅ Reminder cancelled.");
+        } else if (commandName === "summarise") {
             const text = options.getString("text");
-            const lang = options.getString("language");
-            const translated = await translateText(text, lang);
-            await interaction.reply(`🌐 Translation:\n${translated}`);
-        } else if (commandName === "avatar") {
-            const target = options.getUser("user") || user;
-            await interaction.reply(`${target.username}'s avatar: ${target.displayAvatarURL({ dynamic: true })}`);
-        } else if (commandName === "userinfo") {
-            const target = options.getUser("user") || user;
-            await interaction.reply(getUserInfo(target));
-        } else if (commandName === "serverinfo") {
-            await interaction.reply(getServerInfo(guild));
-        } else if (commandName === "8ball") {
-            const response = eightBallResponses[Math.floor(Math.random() * eightBallResponses.length)];
-            await interaction.reply(`🎱 ${response}`);
-        } else if (commandName === "poll") {
-            const question = options.getString("question");
-            const option1 = options.getString("option1");
-            const option2 = options.getString("option2");
-            const pollEmbed = new EmbedBuilder()
-                .setTitle("📊 Poll")
-                .setDescription(question)
-                .addFields(
-                    { name: "🅰️ Option 1", value: option1, inline: true },
-                    { name: "🅱️ Option 2", value: option2, inline: true }
-                )
-                .setFooter({ text: `Poll by ${user.username}` })
-                .setTimestamp();
-                        const pollMsg = await interaction.reply({ embeds: [pollEmbed], fetchReply: true });
-            await pollMsg.react("🅰️");
-            await pollMsg.react("🅱️");
+            const result = await aiTransform("Summarise this text clearly and concisely.", text);
+            await interaction.reply(result);
+        } else if (commandName === "replysuggest") {
+            const text = options.getString("text");
+            const result = await aiTransform("Suggest a helpful and friendly reply to this message.", text);
+            await interaction.reply(result);
+                } else if (commandName === "fixgrammar") {
+            const text = options.getString("text");
+            const result = await aiTransform("Fix grammar, spelling, and clarity in this text.", text);
+            await interaction.reply(result);
+        } else if (commandName === "purge") {
+            const count = options.getInteger("count");
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+                return await interaction.reply({ content: "❌ You don't have permission to use this command.", ephemeral: true });
+            }
+            const messages = await channel.messages.fetch({ limit: count });
+            const deletable = messages.filter(m => !m.pinned);
+            await channel.bulkDelete(deletable, true);
+            await interaction.reply({ content: `🧹 Deleted ${deletable.size} messages.`, ephemeral: true });
         }
     } catch (err) {
         console.error("Interaction error:", err);
