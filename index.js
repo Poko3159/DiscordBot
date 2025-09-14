@@ -71,8 +71,13 @@ async function deliverReminder(userId, message) {
         }
         saveReminders(reminders);
     } catch (err) {
-        console.error(`Failed to deliver reminder to ${userId}:`, err);
+        if (err.code === 10013) {
+            console.warn(`⚠️ Could not deliver reminder — Unknown User (ID: ${userId})`);
+        } else {
+            console.error(`❌ Failed to deliver reminder to ${userId}:`, err);
+        }
 
+        // Clean up reminder even if user is gone
         const reminders = loadReminders();
         if (reminders[userId]) {
             reminders[userId] = reminders[userId].filter(r => r.message !== message);
@@ -86,26 +91,24 @@ async function deliverReminder(userId, message) {
 
 // === Helper Functions ===
 async function getPlayerInfo(tag) {
-    const sanitized = tag.replace("#", "");
     try {
-        const res = await axios.get(`${COC_BASE_URL}/players/%23${sanitized}`, {
+        const res = await axios.get(`${COC_BASE_URL}/players/%23${tag}`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return res.data;
     } catch {
-        return { error: "Error fetching player data." };
+        return { error: "❌ Could not fetch player info." };
     }
 }
 
 async function getClanInfo(tag) {
-    const sanitized = tag.replace("#", "");
     try {
-        const res = await axios.get(`${COC_BASE_URL}/clans/%23${sanitized}`, {
+        const res = await axios.get(`${COC_BASE_URL}/clans/%23${tag}`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return res.data;
     } catch {
-        return { error: "Error fetching clan data." };
+        return { error: "❌ Could not fetch clan info." };
     }
 }
 
@@ -116,20 +119,35 @@ async function getTopClans() {
         });
         return res.data.items.slice(0, 5);
     } catch {
-        return { error: "Error fetching leaderboard." };
+        return { error: "❌ Could not fetch top clans." };
     }
 }
 
 async function getClanWarData(tag) {
-    const sanitized = tag.replace("#", "");
     try {
-        const res = await axios.get(`${COC_BASE_URL}/clans/%23${sanitized}/currentwar`, {
+        const res = await axios.get(`${COC_BASE_URL}/clans/%23${tag}/currentwar`, {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return res.data;
     } catch {
-        return { error: "Error fetching war data." };
+        return { error: "❌ Could not fetch clan war data." };
     }
+}
+
+async function roastUser(target) {
+    const res = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: `Roast ${target} in a funny way.` }]
+    });
+    return res.choices[0].message.content;
+}
+
+async function aiTransform(instruction, text) {
+    const res = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: `${instruction}\n\n${text}` }]
+    });
+    return res.choices[0].message.content;
 }
 
 function playRps(choice) {
@@ -142,80 +160,38 @@ function playRps(choice) {
     return `I win! I chose ${bot}.`;
 }
 
-async function roastUser(target) {
-    try {
-        const res = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: "You are a humorous, sarcastic AI that generates funny but non-offensive roasts." },
-                { role: "user", content: `Roast ${target} in a funny but lighthearted way.` }
-            ]
-        });
-        return res.choices[0].message.content;
-    } catch {
-        return "Couldn't roast them this time!";
-    }
-}
-
-async function aiTransform(prompt, input) {
-    try {
-        const res = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                { role: "system", content: prompt },
-                { role: "user", content: input }
-            ]
-        });
-        return res.choices[0].message.content;
-    } catch {
-        return "AI transformation failed.";
-    }
-}
+// === Ready Event ===
 client.once("ready", async () => {
     console.log(`✅ Logged in as ${client.user?.tag}!`);
 
     const commands = [
-        new SlashCommandBuilder().setName("ping").setDescription("Check if the bot is alive."),
-        new SlashCommandBuilder().setName("help").setDescription("List all available commands."),
-        new SlashCommandBuilder().setName("player").setDescription("Get info about a player.")
-            .addStringOption(opt => opt.setName("tag").setDescription("Player tag").setRequired(true)),
-        new SlashCommandBuilder().setName("clan").setDescription("Get info about a clan.")
-            .addStringOption(opt => opt.setName("tag").setDescription("Clan tag").setRequired(true)),
-        new SlashCommandBuilder().setName("leaderboard").setDescription("Get top 5 global clans."),
-        new SlashCommandBuilder().setName("ask").setDescription("Ask OpenAI anything.")
-            .addStringOption(opt => opt.setName("question").setDescription("Your question").setRequired(true)),
-        new SlashCommandBuilder().setName("roast").setDescription("Roast a user.")
-            .addStringOption(opt => opt.setName("target").setDescription("Target to roast")),
-        new SlashCommandBuilder().setName("rps").setDescription("Play Rock Paper Scissors.")
-            .addStringOption(opt => opt.setName("choice").setDescription("rock, paper, or scissors").setRequired(true)),
-        new SlashCommandBuilder().setName("poster").setDescription("Get current war data.")
-            .addStringOption(opt => opt.setName("tag").setDescription("Clan tag").setRequired(true)),
-        new SlashCommandBuilder().setName("remindme").setDescription("Set a personal reminder.")
-            .addStringOption(opt => opt.setName("time").setDescription("Time in minutes").setRequired(true))
-            .addStringOption(opt => opt.setName("message").setDescription("Reminder message").setRequired(true)),
-        new SlashCommandBuilder().setName("listreminders").setDescription("List your active reminders."),
-        new SlashCommandBuilder().setName("cancelreminder").setDescription("Cancel a reminder.")
-            .addStringOption(opt => opt.setName("id").setDescription("Reminder ID").setRequired(true)),
-        new SlashCommandBuilder().setName("summarise").setDescription("Summarise a block of text.")
-            .addStringOption(opt => opt.setName("text").setDescription("Text to summarise").setRequired(true)),
-        new SlashCommandBuilder().setName("replysuggest").setDescription("Suggest a reply to a message.")
-            .addStringOption(opt => opt.setName("text").setDescription("Message to reply to").setRequired(true)),
-        new SlashCommandBuilder().setName("fixgrammar").setDescription("Fix grammar and clarity.")
-            .addStringOption(opt => opt.setName("text").setDescription("Text to improve").setRequired(true)),
-        new SlashCommandBuilder().setName("purge").setDescription("Delete recent messages.")
-            .addIntegerOption(opt => opt.setName("count").setDescription("Number of messages to delete").setRequired(true)),
-        new SlashCommandBuilder().setName("poll").setDescription("Create a quick poll.")
-            .addStringOption(opt => opt.setName("question").setDescription("Poll question").setRequired(true))
-            .addStringOption(opt => opt.setName("options").setDescription("Comma-separated options").setRequired(true))
+        new SlashCommandBuilder().setName("ping").setDescription("Replies with Pong!"),
+        new SlashCommandBuilder().setName("help").setDescription("Shows all commands."),
+        new SlashCommandBuilder().setName("player").setDescription("Get player info.").addStringOption(opt => opt.setName("tag").setDescription("Player tag").setRequired(true)),
+        new SlashCommandBuilder().setName("clan").setDescription("Get clan info.").addStringOption(opt => opt.setName("tag").setDescription("Clan tag").setRequired(true)),
+        new SlashCommandBuilder().setName("leaderboard").setDescription("Get top clans."),
+        new SlashCommandBuilder().setName("ask").setDescription("Ask AI a question.").addStringOption(opt => opt.setName("question").setDescription("Your question").setRequired(true)),
+        new SlashCommandBuilder().setName("roast").setDescription("Roast a user.").addStringOption(opt => opt.setName("target").setDescription("Who to roast").setRequired(false)),
+        new SlashCommandBuilder().setName("rps").setDescription("Play Rock Paper Scissors.").addStringOption(opt => opt.setName("choice").setDescription("rock, paper, or scissors").setRequired(true)),
+        new SlashCommandBuilder().setName("poster").setDescription("Get current war info.").addStringOption(opt => opt.setName("tag").setDescription("Clan tag").setRequired(true)),
+        new SlashCommandBuilder().setName("remindme").setDescription("Set a reminder.").addStringOption(opt => opt.setName("time").setDescription("Minutes from now").setRequired(true)).addStringOption(opt => opt.setName("message").setDescription("Reminder message").setRequired(true)),
+        new SlashCommandBuilder().setName("listreminders").setDescription("List your reminders."),
+        new SlashCommandBuilder().setName("cancelreminder").setDescription("Cancel a reminder.").addStringOption(opt => opt.setName("id").setDescription("Reminder ID").setRequired(true)),
+        new SlashCommandBuilder().setName("summarise").setDescription("Summarise text.").addStringOption(opt => opt.setName("text").setDescription("The text").setRequired(true)),
+        new SlashCommandBuilder().setName("replysuggest").setDescription("Suggest a reply.").addStringOption(opt => opt.setName("text").setDescription("The text").setRequired(true)),
+        new SlashCommandBuilder().setName("fixgrammar").setDescription("Fix grammar.").addStringOption(opt => opt.setName("text").setDescription("The text").setRequired(true)),
+        new SlashCommandBuilder().setName("purge").setDescription("Delete messages.").addIntegerOption(opt => opt.setName("count").setDescription("Number of messages").setRequired(true)),
+        new SlashCommandBuilder().setName("poll").setDescription("Create a poll.").addStringOption(opt => opt.setName("question").setDescription("The poll question").setRequired(true)).addStringOption(opt => opt.setName("options").setDescription("Comma-separated options").setRequired(true))
     ].map(cmd => cmd.toJSON());
 
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log("✅ Slash commands registered.");
 
-    rescheduleReminders(); // 🔄 Auto-reschedule reminders on startup
+    rescheduleReminders();
 });
 
+// === Interaction Handler ===
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
     const { commandName, options, user, channel } = interaction;
@@ -241,16 +217,18 @@ client.on("interactionCreate", async interaction => {
             const list = clans.map((c, i) => `${i + 1}. ${c.name} – ${c.clanPoints} pts`).join("\n");
             await interaction.reply(`🌍 Top 5 Global Clans:\n${list}`);
         } else if (commandName === "ask") {
+            await interaction.deferReply({ flags: 64 });
             const question = options.getString("question");
             const res = await openai.chat.completions.create({
                 model: "gpt-4o",
                 messages: [{ role: "user", content: question }]
             });
-            await interaction.reply(res.choices[0].message.content);
+            await interaction.editReply(res.choices[0].message.content);
         } else if (commandName === "roast") {
+            await interaction.deferReply({ flags: 64 });
             const target = options.getString("target") || "you";
             const roast = await roastUser(target);
-            await interaction.reply(roast);
+            await interaction.editReply(roast);
         } else if (commandName === "rps") {
             const choice = options.getString("choice");
             const result = playRps(choice.toLowerCase());
@@ -296,41 +274,41 @@ client.on("interactionCreate", async interaction => {
             saveReminders(reminders);
             await interaction.reply("✅ Reminder cancelled.");
         } else if (commandName === "summarise") {
+            await interaction.deferReply({ flags: 64 });
             const text = options.getString("text");
             const result = await aiTransform("Summarise this text clearly and concisely.", text);
-            await interaction.reply(result);
+            await interaction.editReply(result);
         } else if (commandName === "replysuggest") {
+            await interaction.deferReply({ flags: 64 });
             const text = options.getString("text");
             const result = await aiTransform("Suggest a helpful and friendly reply to this message.", text);
-            await interaction.reply(result);
+            await interaction.editReply(result);
         } else if (commandName === "fixgrammar") {
+            await interaction.deferReply({ flags: 64 });
             const text = options.getString("text");
             const result = await aiTransform("Fix grammar, spelling, and clarity in this text.", text);
-            await interaction.reply(result);
+            await interaction.editReply(result);
         } else if (commandName === "purge") {
             const count = options.getInteger("count");
 
-            // Validate count range (Discord bulkDelete supports 1-100)
             if (!count || count < 1 || count > 100) {
-                return await interaction.reply({ content: "❌ Please provide a count between 1 and 100.", ephemeral: true });
+                return await interaction.reply({ content: "❌ Please provide a count between 1 and 100.", flags: 64 });
             }
 
-            // Ensure member and permissions are present
             const member = interaction.member;
             if (!member || !member.permissions || !member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-                return await interaction.reply({ content: "❌ You don't have permission to use this command.", ephemeral: true });
+                return await interaction.reply({ content: "❌ You don't have permission to use this command.", flags: 64 });
             }
 
-            // Ensure we have a channel and it supports message fetching
             if (!channel || !channel.messages) {
-                return await interaction.reply({ content: "❌ Unable to access this channel's messages.", ephemeral: true });
+                return await interaction.reply({ content: "❌ Unable to access this channel's messages.", flags: 64 });
             }
 
             const messages = await channel.messages.fetch({ limit: count });
             const deletable = messages.filter(m => !m.pinned);
-            // bulkDelete accepts a Collection or number, but passing the collection is fine
+
             await channel.bulkDelete(deletable, true);
-            await interaction.reply({ content: `🧹 Deleted ${deletable.size} messages.`, ephemeral: true });
+            await interaction.reply({ content: `🧹 Deleted ${deletable.size} messages.`, flags: 64 });
         } else if (commandName === "poll") {
             const question = options.getString("question");
             const rawOptions = options.getString("options");
@@ -359,10 +337,14 @@ client.on("interactionCreate", async interaction => {
         }
     } catch (err) {
         console.error("Interaction error:", err);
-        if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: "❌ Something went wrong.", ephemeral: true });
-        } else {
-            await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true });
+        try {
+            if (interaction.replied || interaction.deferred) {
+                await interaction.followUp({ content: "❌ Something went wrong.", flags: 64 });
+            } else {
+                await interaction.reply({ content: "❌ Something went wrong.", flags: 64 });
+            }
+        } catch (followErr) {
+            console.error("Failed to send error reply:", followErr);
         }
     }
 });
