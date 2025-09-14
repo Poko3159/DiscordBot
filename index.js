@@ -1,5 +1,3 @@
-Dev part 3
-
 const express = require("express");
 const { DateTime } = require("luxon");
 const {
