@@ -309,13 +309,26 @@ client.on("interactionCreate", async interaction => {
             await interaction.reply(result);
         } else if (commandName === "purge") {
             const count = options.getInteger("count");
-            if (!interaction.member.permissions.has(PermissionsBitField.Flags
 
-            if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
+            // Validate count range (Discord bulkDelete supports 1-100)
+            if (!count || count < 1 || count > 100) {
+                return await interaction.reply({ content: "❌ Please provide a count between 1 and 100.", ephemeral: true });
+            }
+
+            // Ensure member and permissions are present
+            const member = interaction.member;
+            if (!member || !member.permissions || !member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
                 return await interaction.reply({ content: "❌ You don't have permission to use this command.", ephemeral: true });
             }
+
+            // Ensure we have a channel and it supports message fetching
+            if (!channel || !channel.messages) {
+                return await interaction.reply({ content: "❌ Unable to access this channel's messages.", ephemeral: true });
+            }
+
             const messages = await channel.messages.fetch({ limit: count });
             const deletable = messages.filter(m => !m.pinned);
+            // bulkDelete accepts a Collection or number, but passing the collection is fine
             await channel.bulkDelete(deletable, true);
             await interaction.reply({ content: `🧹 Deleted ${deletable.size} messages.`, ephemeral: true });
         } else if (commandName === "poll") {
