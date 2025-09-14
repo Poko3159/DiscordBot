@@ -28,15 +28,7 @@ const client = new Client({
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const COC_API_KEY = process.env.COC_API_KEY;
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
-const ticketsChannelId = process.env.TICKETS_CHANNEL_ID;
-const reminderChannelId = process.env.REMINDER_CHANNEL_ID;
 const REMINDER_FILE = "./reminders.json";
-const rpsChoices = ["rock", "paper", "scissors"];
-const eightBallResponses = [
-    "Yes.", "No.", "Definitely.", "Absolutely not.", "Ask again later.",
-    "It is certain.", "Very doubtful.", "Without a doubt.", "Better not tell you now."
-];
-let lastReminderMessageId = null;
 
 // === Reminder Storage ===
 function loadReminders() {
@@ -46,6 +38,38 @@ function loadReminders() {
 
 function saveReminders(data) {
     fs.writeFileSync(REMINDER_FILE, JSON.stringify(data, null, 2));
+}
+
+function rescheduleReminders() {
+    const reminders = loadReminders();
+    const now = Date.now();
+
+    for (const userId in reminders) {
+        for (const reminder of reminders[userId]) {
+            const delay = reminder.time - now;
+
+            if (delay <= 0) {
+                deliverReminder(userId, reminder.message);
+            } else {
+                setTimeout(() => {
+                    deliverReminder(userId, reminder.message);
+                }, delay);
+            }
+        }
+    }
+}
+
+async function deliverReminder(userId, message) {
+    try {
+        const user = await client.users.fetch(userId);
+        await user.send(`🔔 Reminder: ${message}`);
+
+        const reminders = loadReminders();
+        reminders[userId] = reminders[userId].filter(r => r.message !== message);
+        saveReminders(reminders);
+    } catch (err) {
+        console.error(`Failed to deliver reminder to ${userId}:`, err);
+    }
 }
 
 // === Helper Functions ===
@@ -97,6 +121,7 @@ async function getClanWarData(tag) {
 }
 
 function playRps(choice) {
+    const rpsChoices = ["rock", "paper", "scissors"];
     const bot = rpsChoices[Math.floor(Math.random() * rpsChoices.length)];
     if (choice === bot) return `It's a tie! We both chose ${bot}.`;
     if ((choice === "rock" && bot === "scissors") || (choice === "paper" && bot === "rock") || (choice === "scissors" && bot === "paper")) {
@@ -135,63 +160,6 @@ async function aiTransform(prompt, input) {
     }
 }
 
-function getUserInfo(user) {
-    return `👤 Username: ${user.tag}\n🆔 ID: ${user.id}\n📅 Created: ${user.createdAt.toDateString()}`;
-}
-
-function getServerInfo(guild) {
-    return `🏰 Server: ${guild.name}\n🆔 ID: ${guild.id}\n👥 Members: ${guild.memberCount}\n📅 Created: ${guild.createdAt.toDateString()}`;
-}
-
-async function cleanupOldReminders(channel) {
-    if (!channel?.isTextBased()) return;
-    try {
-        const fetched = await channel.messages.fetch({ limit: 50 });
-        const toDelete = fetched.filter(m =>
-            m.author?.id === client.user?.id &&
-            m.embeds?.length &&
-            m.embeds[0].title?.includes("Lost Family")
-        ).first(5);
-        for (const msg of toDelete) {
-            if (msg.deletable) await msg.delete().catch(() => {});
-        }
-    } catch (err) {
-        console.warn("Reminder cleanup error:", err);
-    }
-}
-
-async function postApplicationReminder(channel) {
-    if (!channel || !channel.isTextBased()) return;
-    await cleanupOldReminders(channel);
-
-    const now = DateTime.now().setZone("Europe/London");
-    const nextReminder = now.plus({ hours: 6 - (now.hour % 6), minutes: -now.minute, seconds: -now.second });
-    const timeLeft = nextReminder.diff(now, ["hours", "minutes"]).toObject();
-    const countdownText = `${Math.floor(timeLeft.hours)}h ${Math.floor(timeLeft.minutes)}m`;
-
-    const ticketUrl = `https://discord.com/channels/${channel.guildId}/${ticketsChannelId}`;
-    const embed = new EmbedBuilder()
-        .setColor(0x1ABC9C)
-        .setTitle("📢 Join a Lost Family Clan!")
-        .setDescription(`Looking to join a Lost Family clan?\n\nHead over to <#${ticketsChannelId}> and select **Clan Application** from the ticket dropdown.`)
-        .addFields({ name: "⏳ Time Until Next Reminder", value: countdownText, inline: true })
-        .setFooter({ text: "Lost Family Network | Applications open 24/7" })
-        .setTimestamp();
-
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setLabel("📝 Apply Now")
-            .setStyle(ButtonStyle.Link)
-            .setURL(ticketUrl)
-    );
-
-    try {
-        const sent = await channel.send({ embeds: [embed], components: [row] });
-        lastReminderMessageId = sent.id;
-    } catch (err) {
-        console.error("Reminder post error:", err);
-    }
-}
 client.once("ready", async () => {
     console.log(`✅ Logged in as ${client.user?.tag}!`);
 
@@ -211,8 +179,6 @@ client.once("ready", async () => {
             .addStringOption(opt => opt.setName("choice").setDescription("rock, paper, or scissors").setRequired(true)),
         new SlashCommandBuilder().setName("poster").setDescription("Get current war data.")
             .addStringOption(opt => opt.setName("tag").setDescription("Clan tag").setRequired(true)),
-        new SlashCommandBuilder().setName("remind").setDescription("Send a reminder message."),
-        new SlashCommandBuilder().setName("clans").setDescription("How to apply for a Lost Family clan."),
         new SlashCommandBuilder().setName("remindme").setDescription("Set a personal reminder.")
             .addStringOption(opt => opt.setName("time").setDescription("Time in minutes").setRequired(true))
             .addStringOption(opt => opt.setName("message").setDescription("Reminder message").setRequired(true)),
@@ -226,23 +192,28 @@ client.once("ready", async () => {
         new SlashCommandBuilder().setName("fixgrammar").setDescription("Fix grammar and clarity.")
             .addStringOption(opt => opt.setName("text").setDescription("Text to improve").setRequired(true)),
         new SlashCommandBuilder().setName("purge").setDescription("Delete recent messages.")
-            .addIntegerOption(opt => opt.setName("count").setDescription("Number of messages to delete").setRequired(true))
+            .addIntegerOption(opt => opt.setName("count").setDescription("Number of messages to delete").setRequired(true)),
+        new SlashCommandBuilder().setName("poll").setDescription("Create a quick poll.")
+            .addStringOption(opt => opt.setName("question").setDescription("Poll question").setRequired(true))
+            .addStringOption(opt => opt.setName("options").setDescription("Comma-separated options").setRequired(true))
     ].map(cmd => cmd.toJSON());
 
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log("✅ Slash commands registered.");
+
+    rescheduleReminders(); // 🔄 Auto-reschedule reminders on startup
 });
 
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    const { commandName, options, user, guild, channel } = interaction;
+    const { commandName, options, user, channel } = interaction;
 
     try {
         if (commandName === "ping") {
             await interaction.reply("🏓 Pong! I'm alive.");
         } else if (commandName === "help") {
-            await interaction.reply("Available commands: /ping /help /player /clan /leaderboard /ask /roast /rps /poster /remind /clans /remindme /listreminders /cancelreminder /summarise /replysuggest /fixgrammar /purge");
+            await interaction.reply("Available commands: /ping /help /player /clan /leaderboard /ask /roast /rps /poster /remindme /listreminders /cancelreminder /summarise /replysuggest /fixgrammar /purge /poll");
         } else if (commandName === "player") {
             const tag = options.getString("tag");
             const info = await getPlayerInfo(tag);
@@ -278,12 +249,6 @@ client.on("interactionCreate", async interaction => {
             const war = await getClanWarData(tag);
             if (war.error) return await interaction.reply(war.error);
             await interaction.reply(`⚔️ War Status: ${war.state}\nStars: ${war.clan.stars} vs ${war.opponent.stars}`);
-        } else if (commandName === "remind") {
-            const reminderChannel = await client.channels.fetch(reminderChannelId);
-            await postApplicationReminder(reminderChannel);
-            await interaction.reply("✅ Reminder sent.");
-        } else if (commandName === "clans") {
-            await interaction.reply(`📢 To apply for a Lost Family clan, head to <#${ticketsChannelId}> and open a Clan Application ticket.`);
         } else if (commandName === "remindme") {
             const minutes = parseInt(options.getString("time"));
             const message = options.getString("message");
@@ -303,7 +268,7 @@ client.on("interactionCreate", async interaction => {
             await interaction.reply(`⏳ Reminder set for ${minutes} minutes.`);
 
             setTimeout(() => {
-                interaction.followUp({ content: `🔔 Reminder: ${message}`, ephemeral: true });
+                deliverReminder(userId, message);
             }, minutes * 60000);
         } else if (commandName === "listreminders") {
             const reminders = loadReminders()[user.id] || [];
@@ -327,19 +292,44 @@ client.on("interactionCreate", async interaction => {
             const text = options.getString("text");
             const result = await aiTransform("Suggest a helpful and friendly reply to this message.", text);
             await interaction.reply(result);
-                } else if (commandName === "fixgrammar") {
+        } else if (commandName === "fixgrammar") {
             const text = options.getString("text");
             const result = await aiTransform("Fix grammar, spelling, and clarity in this text.", text);
             await interaction.reply(result);
         } else if (commandName === "purge") {
             const count = options.getInteger("count");
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-                return await interaction.reply({ content: "❌ You don't have permission to use this command.", ephemeral: true });
+                                return await interaction.reply({ content: "❌ You don't have permission to use this command.", ephemeral: true });
             }
             const messages = await channel.messages.fetch({ limit: count });
             const deletable = messages.filter(m => !m.pinned);
             await channel.bulkDelete(deletable, true);
             await interaction.reply({ content: `🧹 Deleted ${deletable.size} messages.`, ephemeral: true });
+        } else if (commandName === "poll") {
+            const question = options.getString("question");
+            const rawOptions = options.getString("options");
+            const choices = rawOptions.split(",").map(opt => opt.trim()).filter(opt => opt);
+
+            if (choices.length < 2 || choices.length > 5) {
+                return await interaction.reply("❌ Please provide between 2 and 5 options.");
+            }
+
+            const row = new ActionRowBuilder();
+            choices.forEach((opt, i) => {
+                row.addComponents(
+                    new ButtonBuilder()
+                        .setCustomId(`poll_${i}`)
+                        .setLabel(opt)
+                        .setStyle(ButtonStyle.Primary)
+                );
+            });
+
+            const embed = new EmbedBuilder()
+                .setTitle("📊 Poll")
+                .setDescription(question)
+                .setFooter({ text: "Click a button to vote!" });
+
+            await interaction.reply({ embeds: [embed], components: [row] });
         }
     } catch (err) {
         console.error("Interaction error:", err);
@@ -351,5 +341,5 @@ client.on("interactionCreate", async interaction => {
     }
 });
 
-// === Start Bot ===
+// === Start the Bot ===
 client.login(process.env.DISCORD_TOKEN);
