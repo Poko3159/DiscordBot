@@ -31,6 +31,10 @@ const COC_BASE_URL = "https://api.clashofclans.com/v1";
 const ticketsChannelId = process.env.TICKETS_CHANNEL_ID;
 const reminderChannelId = process.env.REMINDER_CHANNEL_ID;
 const rpsChoices = ["rock", "paper", "scissors"];
+const eightBallResponses = [
+    "Yes.", "No.", "Definitely.", "Absolutely not.", "Ask again later.",
+    "It is certain.", "Very doubtful.", "Without a doubt.", "Better not tell you now."
+];
 let lastReminderMessageId = null;
 
 // === Helper Functions ===
@@ -41,7 +45,7 @@ async function getPlayerInfo(tag) {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return res.data;
-    } catch (err) {
+    } catch {
         return { error: "Error fetching player data." };
     }
 }
@@ -53,7 +57,7 @@ async function getClanInfo(tag) {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return res.data;
-    } catch (err) {
+    } catch {
         return { error: "Error fetching clan data." };
     }
 }
@@ -64,7 +68,7 @@ async function getTopClans() {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return res.data.items.slice(0, 5);
-    } catch (err) {
+    } catch {
         return { error: "Error fetching leaderboard." };
     }
 }
@@ -76,7 +80,7 @@ async function getClanWarData(tag) {
             headers: { Authorization: `Bearer ${COC_API_KEY}` }
         });
         return res.data;
-    } catch (err) {
+    } catch {
         return { error: "Error fetching war data." };
     }
 }
@@ -100,12 +104,43 @@ async function roastUser(target) {
             ]
         });
         return res.choices[0].message.content;
-    } catch (err) {
+    } catch {
         return "Couldn't roast them this time!";
     }
 }
 
-// === Reminder Logic ===
+async function translateText(text, targetLang) {
+    try {
+        const res = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                { role: "system", content: `Translate the following text to ${targetLang}.` },
+                { role: "user", content: text }
+            ]
+        });
+        return res.choices[0].message.content;
+    } catch {
+        return "Translation failed.";
+    }
+}
+
+function getTimeInZone(zone) {
+    try {
+        const now = DateTime.now().setZone(zone);
+        return now.toFormat("cccc, dd LLL yyyy HH:mm ZZZZ");
+    } catch {
+        return "Invalid timezone.";
+    }
+}
+
+function getUserInfo(user) {
+    return `👤 Username: ${user.tag}\n🆔 ID: ${user.id}\n📅 Created: ${user.createdAt.toDateString()}`;
+}
+
+function getServerInfo(guild) {
+    return `🏰 Server: ${guild.name}\n🆔 ID: ${guild.id}\n👥 Members: ${guild.memberCount}\n📅 Created: ${guild.createdAt.toDateString()}`;
+}
+
 async function cleanupOldReminders(channel) {
     if (!channel?.isTextBased()) return;
     try {
@@ -155,7 +190,6 @@ async function postApplicationReminder(channel) {
         console.error("Reminder post error:", err);
     }
 }
-
 // === Bot Ready and Command Registration ===
 client.once("ready", async () => {
     console.log(`✅ Logged in as ${client.user?.tag}!`);
@@ -177,7 +211,24 @@ client.once("ready", async () => {
         new SlashCommandBuilder().setName("poster").setDescription("Get current war data.")
             .addStringOption(opt => opt.setName("tag").setDescription("Clan tag").setRequired(true)),
         new SlashCommandBuilder().setName("remind").setDescription("Send a reminder message."),
-        new SlashCommandBuilder().setName("clans").setDescription("How to apply for a Lost Family clan.")
+        new SlashCommandBuilder().setName("clans").setDescription("How to apply for a Lost Family clan."),
+        new SlashCommandBuilder().setName("remindme").setDescription("Set a personal reminder.")
+            .addStringOption(opt => opt.setName("time").setDescription("Time in minutes").setRequired(true))
+            .addStringOption(opt => opt.setName("message").setDescription("Reminder message").setRequired(true)),
+        new SlashCommandBuilder().setName("translate").setDescription("Translate text to another language.")
+            .addStringOption(opt => opt.setName("text").setDescription("Text to translate").setRequired(true))
+            .addStringOption(opt => opt.setName("language").setDescription("Target language").setRequired(true)),
+        new SlashCommandBuilder().setName("avatar").setDescription("Show a user's avatar.")
+            .addUserOption(opt => opt.setName("user").setDescription("User to show")),
+        new SlashCommandBuilder().setName("userinfo").setDescription("Show info about a user.")
+            .addUserOption(opt => opt.setName("user").setDescription("User to inspect")),
+        new SlashCommandBuilder().setName("serverinfo").setDescription("Show info about this server."),
+        new SlashCommandBuilder().setName("8ball").setDescription("Ask the magic 8-ball a question.")
+            .addStringOption(opt => opt.setName("question").setDescription("Your question").setRequired(true)),
+        new SlashCommandBuilder().setName("poll").setDescription("Create a quick poll.")
+            .addStringOption(opt => opt.setName("question").setDescription("Poll question").setRequired(true))
+            .addStringOption(opt => opt.setName("option1").setDescription("First option").setRequired(true))
+            .addStringOption(opt => opt.setName("option2").setDescription("Second option").setRequired(true))
     ].map(cmd => cmd.toJSON());
 
     const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
@@ -188,14 +239,14 @@ client.once("ready", async () => {
 // === Interaction Handler ===
 client.on("interactionCreate", async interaction => {
     if (!interaction.isChatInputCommand()) return;
-    const { commandName, options } = interaction;
+    const { commandName, options, user, guild } = interaction;
 
     try {
         if (commandName === "ping") {
             await interaction.reply("🏓 Pong! I'm alive.");
         } else if (commandName === "help") {
-            await interaction.reply("Available commands: /ping /help /player /clan /leaderboard /ask /roast /rps /poster /remind /clans");
-         } else if (commandName === "player") {
+            await interaction.reply("Available commands: /ping /help /player /clan /leaderboard /ask /roast /rps /poster /remind /clans /remindme /translate /avatar /userinfo /serverinfo /8ball /poll");
+        } else if (commandName === "player") {
             const tag = options.getString("tag");
             const info = await getPlayerInfo(tag);
             if (info.error) return await interaction.reply(info.error);
@@ -236,6 +287,45 @@ client.on("interactionCreate", async interaction => {
             await interaction.reply("✅ Reminder sent.");
         } else if (commandName === "clans") {
             await interaction.reply(`📢 To apply for a Lost Family clan, head to <#${ticketsChannelId}> and open a Clan Application ticket.`);
+        } else if (commandName === "remindme") {
+            const minutes = parseInt(options.getString("time"));
+            const message = options.getString("message");
+            await interaction.reply(`⏳ Reminder set for ${minutes} minutes.`);
+            setTimeout(() => {
+                interaction.followUp({ content: `🔔 Reminder: ${message}`, ephemeral: true });
+            }, minutes * 60000);
+        } else if (commandName === "translate") {
+            const text = options.getString("text");
+            const lang = options.getString("language");
+            const translated = await translateText(text, lang);
+            await interaction.reply(`🌐 Translation:\n${translated}`);
+        } else if (commandName === "avatar") {
+            const target = options.getUser("user") || user;
+            await interaction.reply(`${target.username}'s avatar: ${target.displayAvatarURL({ dynamic: true })}`);
+        } else if (commandName === "userinfo") {
+            const target = options.getUser("user") || user;
+            await interaction.reply(getUserInfo(target));
+        } else if (commandName === "serverinfo") {
+            await interaction.reply(getServerInfo(guild));
+        } else if (commandName === "8ball") {
+            const response = eightBallResponses[Math.floor(Math.random() * eightBallResponses.length)];
+            await interaction.reply(`🎱 ${response}`);
+        } else if (commandName === "poll") {
+            const question = options.getString("question");
+            const option1 = options.getString("option1");
+            const option2 = options.getString("option2");
+            const pollEmbed = new EmbedBuilder()
+                .setTitle("📊 Poll")
+                .setDescription(question)
+                .addFields(
+                    { name: "🅰️ Option 1", value: option1, inline: true },
+                    { name: "🅱️ Option 2", value: option2, inline: true }
+                )
+                .setFooter({ text: `Poll by ${user.username}` })
+                .setTimestamp();
+                        const pollMsg = await interaction.reply({ embeds: [pollEmbed], fetchReply: true });
+            await pollMsg.react("🅰️");
+            await pollMsg.react("🅱️");
         }
     } catch (err) {
         console.error("Interaction error:", err);
