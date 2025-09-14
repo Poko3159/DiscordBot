@@ -66,9 +66,21 @@ async function deliverReminder(userId, message) {
 
         const reminders = loadReminders();
         reminders[userId] = reminders[userId].filter(r => r.message !== message);
+        if (reminders[userId].length === 0) {
+            delete reminders[userId];
+        }
         saveReminders(reminders);
     } catch (err) {
         console.error(`Failed to deliver reminder to ${userId}:`, err);
+
+        const reminders = loadReminders();
+        if (reminders[userId]) {
+            reminders[userId] = reminders[userId].filter(r => r.message !== message);
+            if (reminders[userId].length === 0) {
+                delete reminders[userId];
+            }
+            saveReminders(reminders);
+        }
     }
 }
 
@@ -159,7 +171,6 @@ async function aiTransform(prompt, input) {
         return "AI transformation failed.";
     }
 }
-
 client.once("ready", async () => {
     console.log(`✅ Logged in as ${client.user?.tag}!`);
 
@@ -298,8 +309,10 @@ client.on("interactionCreate", async interaction => {
             await interaction.reply(result);
         } else if (commandName === "purge") {
             const count = options.getInteger("count");
+            if (!interaction.member.permissions.has(PermissionsBitField.Flags
+
             if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-                                return await interaction.reply({ content: "❌ You don't have permission to use this command.", ephemeral: true });
+                return await interaction.reply({ content: "❌ You don't have permission to use this command.", ephemeral: true });
             }
             const messages = await channel.messages.fetch({ limit: count });
             const deletable = messages.filter(m => !m.pinned);
