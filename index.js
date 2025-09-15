@@ -19,7 +19,7 @@ const fs = require("fs");
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot is alive!"));
-// avoid template literal here
+// avoid template literals that were causing parse errors in your environment
 app.listen(PORT, "0.0.0.0", () => console.log("Server is running on port " + PORT));
 
 const client = new Client({
@@ -60,7 +60,6 @@ async function rescheduleReminders() {
             await client.users.fetch(userId);
         } catch (err) {
             const isUnknown = err && (err.code === 10013 || (err.rawError && err.rawError.code === 10013));
-            // avoid template literal here
             console.warn(isUnknown ? "Removing unknown user " + userId + " from reminders." : "Error fetching user " + userId + ", removing from reminders.");
             delete reminders[userId];
             changed = true;
@@ -87,7 +86,6 @@ async function deliverReminder(userId, message) {
     try {
         const user = await client.users.fetch(userId);
         if (!user) throw new Error("User not found");
-        // avoid template literal here
         await user.send("🔔 Reminder: " + message);
 
         const reminders = loadReminders();
@@ -99,7 +97,6 @@ async function deliverReminder(userId, message) {
     } catch (err) {
         const isUnknownUser = err && (err.code === 10013 || (err.rawError && err.rawError.code === 10013));
         if (!isUnknownUser) {
-            // avoid template literal in error log
             console.error("Failed to deliver reminder to " + userId + ":", err);
         } else {
             console.warn("Removing reminders for unknown user " + userId);
@@ -107,7 +104,6 @@ async function deliverReminder(userId, message) {
 
         const reminders = loadReminders();
         if (reminders[userId]) {
-            // remove all reminders for the unknown user
             delete reminders[userId];
             saveReminders(reminders);
         }
@@ -118,8 +114,8 @@ async function deliverReminder(userId, message) {
 async function getPlayerInfo(tag) {
     const sanitized = tag.replace("#", "");
     try {
-        const res = await axios.get(`${COC_BASE_URL}/players/%23${sanitized}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        const res = await axios.get(COC_BASE_URL + "/players/%23" + sanitized, {
+            headers: { Authorization: "Bearer " + COC_API_KEY }
         });
         return res.data;
     } catch {
@@ -130,8 +126,8 @@ async function getPlayerInfo(tag) {
 async function getClanInfo(tag) {
     const sanitized = tag.replace("#", "");
     try {
-        const res = await axios.get(`${COC_BASE_URL}/clans/%23${sanitized}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        const res = await axios.get(COC_BASE_URL + "/clans/%23" + sanitized, {
+            headers: { Authorization: "Bearer " + COC_API_KEY }
         });
         return res.data;
     } catch {
@@ -141,8 +137,8 @@ async function getClanInfo(tag) {
 
 async function getTopClans() {
     try {
-        const res = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        const res = await axios.get(COC_BASE_URL + "/locations/global/rankings/clans", {
+            headers: { Authorization: "Bearer " + COC_API_KEY }
         });
         return res.data.items.slice(0, 5);
     } catch {
@@ -153,8 +149,8 @@ async function getTopClans() {
 async function getClanWarData(tag) {
     const sanitized = tag.replace("#", "");
     try {
-        const res = await axios.get(`${COC_BASE_URL}/clans/%23${sanitized}/currentwar`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        const res = await axios.get(COC_BASE_URL + "/clans/%23" + sanitized + "/currentwar", {
+            headers: { Authorization: "Bearer " + COC_API_KEY }
         });
         return res.data;
     } catch {
@@ -165,11 +161,11 @@ async function getClanWarData(tag) {
 function playRps(choice) {
     const rpsChoices = ["rock", "paper", "scissors"];
     const bot = rpsChoices[Math.floor(Math.random() * rpsChoices.length)];
-    if (choice === bot) return `It's a tie! We both chose ${bot}.`;
+    if (choice === bot) return "It's a tie! We both chose " + bot + ".";
     if ((choice === "rock" && bot === "scissors") || (choice === "paper" && bot === "rock") || (choice === "scissors" && bot === "paper")) {
-        return `You win! I chose ${bot}.`;
+        return "You win! I chose " + bot + ".";
     }
-    return `I win! I chose ${bot}.`;
+    return "I win! I chose " + bot + ".";
 }
 
 async function roastUser(target) {
@@ -178,7 +174,7 @@ async function roastUser(target) {
             model: "gpt-4o",
             messages: [
                 { role: "system", content: "You are a humorous, sarcastic AI that generates funny but non-offensive roasts." },
-                { role: "user", content: `Roast ${target} in a funny but lighthearted way.` }
+                { role: "user", content: "Roast " + target + " in a funny but lighthearted way." }
             ]
         });
         return res.choices[0].message.content;
@@ -204,7 +200,7 @@ async function aiTransform(prompt, input) {
 
 // === Bot Ready ===
 client.once("ready", async () => {
-    console.log(`✅ Logged in as ${client.user?.tag}!`);
+    console.log("✅ Logged in as " + (client.user ? client.user.tag : "unknown") + "!");
 
     const commands = [
         new SlashCommandBuilder().setName("ping").setDescription("Check if the bot is alive."),
@@ -263,17 +259,17 @@ client.on("interactionCreate", async interaction => {
             const tag = options.getString("tag");
             const info = await getPlayerInfo(tag);
             if (info.error) return await interaction.reply(info.error);
-            await interaction.reply(`🏅 Player: ${info.name}\n🏰 Clan: ${info.clan?.name || "None"}\n🏆 Trophies: ${info.trophies}`);
+            await interaction.reply("🏅 Player: " + info.name + "\n🏰 Clan: " + (info.clan && info.clan.name ? info.clan.name : "None") + "\n🏆 Trophies: " + info.trophies);
         } else if (commandName === "clan") {
             const tag = options.getString("tag");
             const info = await getClanInfo(tag);
             if (info.error) return await interaction.reply(info.error);
-            await interaction.reply(`🏰 Clan: ${info.name}\n📊 Members: ${info.members}\n🏆 Points: ${info.clanPoints}`);
+            await interaction.reply("🏰 Clan: " + info.name + "\n📊 Members: " + info.members + "\n🏆 Points: " + info.clanPoints);
         } else if (commandName === "leaderboard") {
             const clans = await getTopClans();
             if (clans.error) return await interaction.reply(clans.error);
-            const list = clans.map((c, i) => `${i + 1}. ${c.name} – ${c.clanPoints} pts`).join("\n");
-            await interaction.reply(`🌍 Top 5 Global Clans:\n${list}`);
+            const list = clans.map((c, i) => (i + 1) + ". " + c.name + " - " + c.clanPoints + " pts").join("\n");
+            await interaction.reply("🌍 Top 5 Global Clans:\n" + list);
         } else if (commandName === "ask") {
             const isPrivate = options.getBoolean("private") || false;
             await interaction.deferReply({ ephemeral: isPrivate });
@@ -319,7 +315,7 @@ const fs = require("fs");
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot is alive!"));
-// avoid template literal here
+// avoid template literals that were causing parse errors in your environment
 app.listen(PORT, "0.0.0.0", () => console.log("Server is running on port " + PORT));
 
 const client = new Client({
@@ -360,7 +356,6 @@ async function rescheduleReminders() {
             await client.users.fetch(userId);
         } catch (err) {
             const isUnknown = err && (err.code === 10013 || (err.rawError && err.rawError.code === 10013));
-            // avoid template literal here
             console.warn(isUnknown ? "Removing unknown user " + userId + " from reminders." : "Error fetching user " + userId + ", removing from reminders.");
             delete reminders[userId];
             changed = true;
@@ -387,7 +382,6 @@ async function deliverReminder(userId, message) {
     try {
         const user = await client.users.fetch(userId);
         if (!user) throw new Error("User not found");
-        // avoid template literal here
         await user.send("🔔 Reminder: " + message);
 
         const reminders = loadReminders();
@@ -399,7 +393,6 @@ async function deliverReminder(userId, message) {
     } catch (err) {
         const isUnknownUser = err && (err.code === 10013 || (err.rawError && err.rawError.code === 10013));
         if (!isUnknownUser) {
-            // avoid template literal in error log
             console.error("Failed to deliver reminder to " + userId + ":", err);
         } else {
             console.warn("Removing reminders for unknown user " + userId);
@@ -407,7 +400,6 @@ async function deliverReminder(userId, message) {
 
         const reminders = loadReminders();
         if (reminders[userId]) {
-            // remove all reminders for the unknown user
             delete reminders[userId];
             saveReminders(reminders);
         }
@@ -418,8 +410,8 @@ async function deliverReminder(userId, message) {
 async function getPlayerInfo(tag) {
     const sanitized = tag.replace("#", "");
     try {
-        const res = await axios.get(`${COC_BASE_URL}/players/%23${sanitized}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        const res = await axios.get(COC_BASE_URL + "/players/%23" + sanitized, {
+            headers: { Authorization: "Bearer " + COC_API_KEY }
         });
         return res.data;
     } catch {
@@ -430,8 +422,8 @@ async function getPlayerInfo(tag) {
 async function getClanInfo(tag) {
     const sanitized = tag.replace("#", "");
     try {
-        const res = await axios.get(`${COC_BASE_URL}/clans/%23${sanitized}`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        const res = await axios.get(COC_BASE_URL + "/clans/%23" + sanitized, {
+            headers: { Authorization: "Bearer " + COC_API_KEY }
         });
         return res.data;
     } catch {
@@ -441,8 +433,8 @@ async function getClanInfo(tag) {
 
 async function getTopClans() {
     try {
-        const res = await axios.get(`${COC_BASE_URL}/locations/global/rankings/clans`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        const res = await axios.get(COC_BASE_URL + "/locations/global/rankings/clans", {
+            headers: { Authorization: "Bearer " + COC_API_KEY }
         });
         return res.data.items.slice(0, 5);
     } catch {
@@ -453,8 +445,8 @@ async function getTopClans() {
 async function getClanWarData(tag) {
     const sanitized = tag.replace("#", "");
     try {
-        const res = await axios.get(`${COC_BASE_URL}/clans/%23${sanitized}/currentwar`, {
-            headers: { Authorization: `Bearer ${COC_API_KEY}` }
+        const res = await axios.get(COC_BASE_URL + "/clans/%23" + sanitized + "/currentwar", {
+            headers: { Authorization: "Bearer " + COC_API_KEY }
         });
         return res.data;
     } catch {
@@ -465,11 +457,11 @@ async function getClanWarData(tag) {
 function playRps(choice) {
     const rpsChoices = ["rock", "paper", "scissors"];
     const bot = rpsChoices[Math.floor(Math.random() * rpsChoices.length)];
-    if (choice === bot) return `It's a tie! We both chose ${bot}.`;
+    if (choice === bot) return "It's a tie! We both chose " + bot + ".";
     if ((choice === "rock" && bot === "scissors") || (choice === "paper" && bot === "rock") || (choice === "scissors" && bot === "paper")) {
-        return `You win! I chose ${bot}.`;
+        return "You win! I chose " + bot + ".";
     }
-    return `I win! I chose ${bot}.`;
+    return "I win! I chose " + bot + ".";
 }
 
 async function roastUser(target) {
@@ -478,7 +470,7 @@ async function roastUser(target) {
             model: "gpt-4o",
             messages: [
                 { role: "system", content: "You are a humorous, sarcastic AI that generates funny but non-offensive roasts." },
-                { role: "user", content: `Roast ${target} in a funny but lighthearted way.` }
+                { role: "user", content: "Roast " + target + " in a funny but lighthearted way." }
             ]
         });
         return res.choices[0].message.content;
@@ -504,7 +496,7 @@ async function aiTransform(prompt, input) {
 
 // === Bot Ready ===
 client.once("ready", async () => {
-    console.log(`✅ Logged in as ${client.user?.tag}!`);
+    console.log("✅ Logged in as " + (client.user ? client.user.tag : "unknown") + "!");
 
     const commands = [
         new SlashCommandBuilder().setName("ping").setDescription("Check if the bot is alive."),
@@ -563,17 +555,17 @@ client.on("interactionCreate", async interaction => {
             const tag = options.getString("tag");
             const info = await getPlayerInfo(tag);
             if (info.error) return await interaction.reply(info.error);
-            await interaction.reply(`🏅 Player: ${info.name}\n🏰 Clan: ${info.clan?.name || "None"}\n🏆 Trophies: ${info.trophies}`);
+            await interaction.reply("🏅 Player: " + info.name + "\n🏰 Clan: " + (info.clan && info.clan.name ? info.clan.name : "None") + "\n🏆 Trophies: " + info.trophies);
         } else if (commandName === "clan") {
             const tag = options.getString("tag");
             const info = await getClanInfo(tag);
             if (info.error) return await interaction.reply(info.error);
-            await interaction.reply(`🏰 Clan: ${info.name}\n📊 Members: ${info.members}\n🏆 Points: ${info.clanPoints}`);
+            await interaction.reply("🏰 Clan: " + info.name + "\n📊 Members: " + info.members + "\n🏆 Points: " + info.clanPoints);
         } else if (commandName === "leaderboard") {
             const clans = await getTopClans();
             if (clans.error) return await interaction.reply(clans.error);
-            const list = clans.map((c, i) => `${i + 1}. ${c.name} – ${c.clanPoints} pts`).join("\n");
-            await interaction.reply(`🌍 Top 5 Global Clans:\n${list}`);
+            const list = clans.map((c, i) => (i + 1) + ". " + c.name + " - " + c.clanPoints + " pts").join("\n");
+            await interaction.reply("🌍 Top 5 Global Clans:\n" + list);
         } else if (commandName === "ask") {
             const isPrivate = options.getBoolean("private") || false;
             await interaction.deferReply({ ephemeral: isPrivate });
