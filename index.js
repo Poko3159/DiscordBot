@@ -19,7 +19,7 @@ const fs = require("fs");
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot is alive!"));
-// avoid template literal which caused a parse issue in your deploy environment
+// avoid template literal here
 app.listen(PORT, "0.0.0.0", () => console.log("Server is running on port " + PORT));
 
 const client = new Client({
@@ -60,7 +60,8 @@ async function rescheduleReminders() {
             await client.users.fetch(userId);
         } catch (err) {
             const isUnknown = err && (err.code === 10013 || (err.rawError && err.rawError.code === 10013));
-            console.warn(isUnknown ? `Removing unknown user ${userId} from reminders.` : `Error fetching user ${userId}, removing from reminders.`);
+            // avoid template literal here
+            console.warn(isUnknown ? "Removing unknown user " + userId + " from reminders." : "Error fetching user " + userId + ", removing from reminders.");
             delete reminders[userId];
             changed = true;
             continue;
@@ -86,7 +87,8 @@ async function deliverReminder(userId, message) {
     try {
         const user = await client.users.fetch(userId);
         if (!user) throw new Error("User not found");
-        await user.send(`🔔 Reminder: ${message}`);
+        // avoid template literal here
+        await user.send("🔔 Reminder: " + message);
 
         const reminders = loadReminders();
         if (reminders[userId]) {
@@ -97,9 +99,10 @@ async function deliverReminder(userId, message) {
     } catch (err) {
         const isUnknownUser = err && (err.code === 10013 || (err.rawError && err.rawError.code === 10013));
         if (!isUnknownUser) {
-            console.error(`Failed to deliver reminder to ${userId}:`, err);
+            // avoid template literal in error log
+            console.error("Failed to deliver reminder to " + userId + ":", err);
         } else {
-            console.warn(`Removing reminders for unknown user ${userId}`);
+            console.warn("Removing reminders for unknown user " + userId);
         }
 
         const reminders = loadReminders();
@@ -316,7 +319,7 @@ const fs = require("fs");
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", (req, res) => res.send("Bot is alive!"));
-// avoid template literal which caused a parse issue in your deploy environment
+// avoid template literal here
 app.listen(PORT, "0.0.0.0", () => console.log("Server is running on port " + PORT));
 
 const client = new Client({
@@ -357,7 +360,8 @@ async function rescheduleReminders() {
             await client.users.fetch(userId);
         } catch (err) {
             const isUnknown = err && (err.code === 10013 || (err.rawError && err.rawError.code === 10013));
-            console.warn(isUnknown ? `Removing unknown user ${userId} from reminders.` : `Error fetching user ${userId}, removing from reminders.`);
+            // avoid template literal here
+            console.warn(isUnknown ? "Removing unknown user " + userId + " from reminders." : "Error fetching user " + userId + ", removing from reminders.");
             delete reminders[userId];
             changed = true;
             continue;
@@ -383,7 +387,8 @@ async function deliverReminder(userId, message) {
     try {
         const user = await client.users.fetch(userId);
         if (!user) throw new Error("User not found");
-        await user.send(`🔔 Reminder: ${message}`);
+        // avoid template literal here
+        await user.send("🔔 Reminder: " + message);
 
         const reminders = loadReminders();
         if (reminders[userId]) {
@@ -394,9 +399,10 @@ async function deliverReminder(userId, message) {
     } catch (err) {
         const isUnknownUser = err && (err.code === 10013 || (err.rawError && err.rawError.code === 10013));
         if (!isUnknownUser) {
-            console.error(`Failed to deliver reminder to ${userId}:`, err);
+            // avoid template literal in error log
+            console.error("Failed to deliver reminder to " + userId + ":", err);
         } else {
-            console.warn(`Removing reminders for unknown user ${userId}`);
+            console.warn("Removing reminders for unknown user " + userId);
         }
 
         const reminders = loadReminders();
