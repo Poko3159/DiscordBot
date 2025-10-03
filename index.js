@@ -41,7 +41,7 @@ const GLOBAL_CHANNEL_ID = process.env.GLOBAL_CHANNEL_ID || "";
 const TICKETS_CHANNEL_ID = process.env.TICKETS_CHANNEL_ID || "";
 const BROADCAST_FILE = "./last_broadcast.json";
 const BROADCAST_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
-const BROADCAST_DESCRIPTION = "To Apply to a Lost Family clan, Request support, or Enquiry about a Partnership or Paid promotion, please navigate to Tickets channel and select the relevant option";
+const BROADCAST_DESCRIPTION = "To Apply to a Lost Family clan, Request support, or Enquire about a Partnership or Paid promotion, please navigate to Tickets channel and select the relevant option";
 const BROADCAST_TITLE = "Lost Reminder";
 const BROADCAST_COLOR = 0x9e6bff;
 
