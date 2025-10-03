@@ -64,7 +64,6 @@ function rescheduleReminders() {
       // Expect reminder to have { id, time, message } shape
       const delay = (reminder && reminder.time ? reminder.time : 0) - now;
       if (delay <= 0) {
-        // deliver immediately (async but fire-and-forget)
         deliverReminder(userId, reminder).catch(err => console.error('deliverReminder immediate error', err));
       } else {
         setTimeout(function () {
@@ -166,35 +165,85 @@ function playRps(choice) {
   return "I win! I chose " + bot + ".";
 }
 
+// === AI wrapper using GPT-5 with fallback to gpt-3.5-turbo ===
+const PREFERRED_MODEL = process.env.PREFERRED_MODEL || "gpt-5";
+const FALLBACK_MODEL = process.env.FALLBACK_MODEL || "gpt-3.5-turbo";
+const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS || "25000", 10);
+
+async function requestAI(messages, opts = {}) {
+  const modelOrder = [PREFERRED_MODEL, FALLBACK_MODEL];
+  const maxTokens = opts.max_tokens || 512;
+  const temperature = typeof opts.temperature === "number" ? opts.temperature : 0.2;
+
+  for (const model of modelOrder) {
+    try {
+      // adapt call to the OpenAI SDK surface you're using; this mirrors previous usage
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+
+      const payload = {
+        model,
+        messages,
+        max_tokens: maxTokens,
+        temperature
+      };
+
+      const res = await openai.chat.completions.create({
+        ...payload,
+        signal: controller.signal
+      });
+
+      clearTimeout(timer);
+
+      const content = res?.choices?.[0]?.message?.content;
+      if (content) return { content, modelUsed: model, raw: res };
+      // if no content, try next model
+    } catch (err) {
+      // treat abort as retryable
+      const code = err?.code ?? err?.rawError?.code ?? null;
+      const status = err?.status ?? err?.response?.status ?? null;
+
+      const isRetryable = status === 429 || (code >= 500 && code < 600) || err?.name === "AbortError";
+
+      console.warn(`AI request to ${model} failed`, { code, status, name: err?.name });
+
+      if (!isRetryable) {
+        // Non-retryable: return error immediately
+        return { error: err };
+      }
+      // Otherwise try next model in loop
+    }
+  }
+
+  return { error: new Error("All AI models failed or returned no content") };
+}
+
 async function roastUser(target) {
   try {
-    // Best-effort: adapt to installed OpenAI SDK; if your SDK differs, update accordingly.
-    var res = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: "You are a humorous, sarcastic AI that generates funny but non-offensive roasts." },
-        { role: "user", content: "Roast " + target + " in a funny but lighthearted way." }
-      ]
-    });
-    return res.choices[0].message.content;
+    const messages = [
+      { role: "system", content: "You are a humorous, sarcastic AI that generates funny but non-offensive roasts." },
+      { role: "user", content: "Roast " + target + " in a funny but lighthearted way." }
+    ];
+    const ai = await requestAI(messages, { max_tokens: 180, temperature: 0.6 });
+    if (ai.error) throw ai.error;
+    return ai.content;
   } catch (e) {
-    console.error('roastUser error', e?.message);
+    console.error('roastUser error', e?.message || e);
     return "Couldn't roast them this time!";
   }
 }
 
-async function aiTransform(prompt, input) {
+async function aiTransform(prompt, input, opts = {}) {
   try {
-    var res = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: prompt },
-        { role: "user", content: input }
-      ]
-    });
-    return res.choices[0].message.content;
+    const messages = [
+      { role: "system", content: prompt },
+      { role: "user", content: input }
+    ];
+    const ai = await requestAI(messages, Object.assign({ max_tokens: 512, temperature: 0.2 }, opts));
+    if (ai.error) throw ai.error;
+    return ai.content;
   } catch (e) {
-    console.error('aiTransform error', e?.message);
+    console.error('aiTransform error', e?.message || e);
     return "AI transformation failed.";
   }
 }
@@ -281,14 +330,12 @@ client.on("interactionCreate", async function (interaction) {
       await safeDefer(interaction, { ephemeral: isPrivate });
       var question = options.getString("question");
       try {
-        var res = await openai.chat.completions.create({
-          model: "gpt-4o",
-          messages: [{ role: "user", content: question }]
-        });
-        var content = res?.choices?.[0]?.message?.content ?? "No response from AI.";
+        const ai = await requestAI([{ role: "user", content: question }], { max_tokens: 512, temperature: 0.2 });
+        if (ai.error) throw ai.error;
+        var content = ai.content ?? "No response from AI.";
         await safeEdit(interaction, { content });
       } catch (e) {
-        console.error('OpenAI ask error', e?.message);
+        console.error('OpenAI ask error', e?.message || e);
         await safeEdit(interaction, { content: "AI request failed.", ephemeral: true });
       }
     } else if (commandName === "roast") {
@@ -319,7 +366,7 @@ client.on("interactionCreate", async function (interaction) {
       saveReminders(reminders);
 
       // schedule single timer for this reminder
-      setTimeout(() => deliverReminder(userId, { id, time, message }).catch(err => console.error('deliverReminder scheduled error', err)), time - Date.now());
+      setTimeout(() => deliverReminder(userId, { id, time, message }).catch(err => console.error('deliverReminder scheduled error', err)), Math.max(0, time - Date.now()));
 
       await safeReplyOrFollow(interaction, { content: `Reminder set for ${minutes} minute(s). ID: ${id}`, ephemeral: true });
     } else if (commandName === "listreminders") {
@@ -348,7 +395,7 @@ client.on("interactionCreate", async function (interaction) {
       const text = options.getString("text");
       await safeDefer(interaction, { ephemeral: false });
       try {
-        const summary = await aiTransform("Summarise the following text concisely:", text);
+        const summary = await aiTransform("Summarise the following text concisely:", text, { max_tokens: 400, temperature: 0.1 });
         await safeEdit(interaction, { content: summary });
       } catch (e) {
         console.error('summarise error', e);
@@ -358,7 +405,7 @@ client.on("interactionCreate", async function (interaction) {
       const text = options.getString("text");
       await safeDefer(interaction, { ephemeral: false });
       try {
-        const suggestion = await aiTransform("Suggest a short reply to the following message:", text);
+        const suggestion = await aiTransform("Suggest a short reply to the following message:", text, { max_tokens: 180, temperature: 0.2 });
         await safeEdit(interaction, { content: suggestion });
       } catch (e) {
         console.error('replysuggest error', e);
@@ -368,7 +415,7 @@ client.on("interactionCreate", async function (interaction) {
       const text = options.getString("text");
       await safeDefer(interaction, { ephemeral: false });
       try {
-        const fixed = await aiTransform("Fix grammar and clarity for the following text:", text);
+        const fixed = await aiTransform("Fix grammar and clarity for the following text:", text, { max_tokens: 400, temperature: 0.0 });
         await safeEdit(interaction, { content: fixed });
       } catch (e) {
         console.error('fixgrammar error', e);
@@ -377,7 +424,6 @@ client.on("interactionCreate", async function (interaction) {
     } else if (commandName === "purge") {
       const count = options.getInteger("count");
       if (!interaction.memberPermissions || !interaction.memberPermissions.has || !interaction.memberPermissions.has("ManageMessages")) {
-        // permission check fallback
         await safeReplyOrFollow(interaction, { content: "You do not have permission to purge messages.", ephemeral: true });
       } else {
         try {
