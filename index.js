@@ -27,7 +27,12 @@ app.get("/", function (req, res) { res.send("Bot is alive!"); });
 app.listen(PORT, "0.0.0.0", function () { console.log("Server is running on port " + PORT); });
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMessageReactions
+  ],
 });
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -261,7 +266,16 @@ client.once("ready", async () => {
     new SlashCommandBuilder().setName("ask").setDescription("Ask the AI a question.")
       .addStringOption(opt => opt.setName("question").setDescription("Question").setRequired(true)),
     new SlashCommandBuilder().setName("lostreminder").setDescription("Send the Lost Reminder broadcast now."),
-    new SlashCommandBuilder().setName("help").setDescription("List bot commands and short descriptions.")
+    new SlashCommandBuilder().setName("help").setDescription("List bot commands and short descriptions."),
+    new SlashCommandBuilder().setName("poll").setDescription("Create a poll with up to 5 options.")
+      .addStringOption(opt => opt.setName("question").setDescription("Poll question").setRequired(true))
+      .addStringOption(opt => opt.setName("option1").setDescription("Option 1").setRequired(true))
+      .addStringOption(opt => opt.setName("option2").setDescription("Option 2").setRequired(true))
+      .addStringOption(opt => opt.setName("option3").setDescription("Option 3").setRequired(false))
+      .addStringOption(opt => opt.setName("option4").setDescription("Option 4").setRequired(false))
+      .addStringOption(opt => opt.setName("option5").setDescription("Option 5").setRequired(false)),
+    new SlashCommandBuilder().setName("pollresults").setDescription("Show results for a poll message.")
+      .addStringOption(opt => opt.setName("message_id").setDescription("Message ID of the poll").setRequired(false))
   ].map(cmd => cmd.toJSON());
 
   const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
@@ -332,9 +346,152 @@ client.on("interactionCreate", async interaction => {
         "/clan <tag> — Get info about a Clash clan.",
         "/ask <question> — Ask the AI a question.",
         "/lostreminder — Send the Lost Reminder broadcast now.",
+        "/poll — Create a poll with up to 5 options.",
+        "/pollresults [message_id] — Show poll results for a poll message.",
         "/help — Show this help text."
       ].join("\n");
       return await interaction.reply({ content: helpText, ephemeral: true });
+    }
+
+    // --- Poll creation ---
+    if (commandName === "poll") {
+      const question = options.getString("question");
+      const choices = [];
+      for (let i = 1; i <= 5; i++) {
+        const opt = options.getString("option" + i);
+        if (opt) choices.push(opt);
+      }
+
+      if (choices.length < 2) {
+        return await interaction.reply({ content: "❌ You need at least 2 options.", ephemeral: true });
+      }
+
+      const emojiMap = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
+      const description = choices.map((opt, i) => `${emojiMap[i]} ${opt}`).join("\n");
+
+      const embed = new EmbedBuilder()
+        .setTitle("📊 " + question)
+        .setDescription(description)
+        .setColor(BROADCAST_COLOR)
+        .setFooter({ text: "Vote by reacting below!" });
+
+      const sent = await interaction.reply({ embeds: [embed], fetchReply: true });
+      for (let i = 0; i < choices.length; i++) {
+        await sent.react(emojiMap[i]).catch(() => {});
+      }
+      return;
+    }
+
+    // --- Poll results ---
+    if (commandName === "pollresults") {
+      await interaction.deferReply({ ephemeral: true });
+
+      const messageId = options.getString("message_id");
+      let targetMessage = null;
+
+      try {
+        if (messageId) {
+          // try to fetch the specific message from the channel where command was invoked
+          const channel = interaction.channel;
+          if (!channel || !channel.fetch) {
+            return await interaction.editReply("❌ Unable to access the channel to fetch the message.");
+          }
+          targetMessage = await channel.messages.fetch(messageId).catch(() => null);
+          if (!targetMessage) {
+            return await interaction.editReply("❌ Could not find a message with that ID in this channel.");
+          }
+        } else {
+          // locate the most recent poll message sent by the bot in this channel
+          const channel = interaction.channel;
+          if (!channel || !channel.messages) {
+            return await interaction.editReply("❌ Unable to access the channel to search for a poll.");
+          }
+          const fetched = await channel.messages.fetch({ limit: 50 });
+          // find most recent message by the bot that looks like a poll embed (title starts with 📊)
+          targetMessage = fetched.find(m => {
+            if (!m.author) return false;
+            if (m.author.id !== client.user.id) return false;
+            if (!m.embeds || m.embeds.length === 0) return false;
+            const e = m.embeds[0];
+            if (!e.title) return false;
+            return e.title.startsWith("📊 ");
+          });
+          if (!targetMessage) {
+            return await interaction.editReply("❌ Could not find a recent poll message in this channel. Provide message_id to specify the poll.");
+          }
+        }
+      } catch (e) {
+        console.error("Error locating poll message:", e);
+        return await interaction.editReply("❌ Error locating poll message.");
+      }
+
+      try {
+        // build results from reactions
+        const embed = targetMessage.embeds && targetMessage.embeds[0];
+        if (!embed || !embed.description) {
+          return await interaction.editReply("❌ The target message does not look like a poll created by this bot.");
+        }
+
+        // parse options from embed description lines
+        const lines = embed.description.split("\n").map(l => l.trim()).filter(Boolean);
+        const emojiMap = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"];
+        const optionEmojis = [];
+        const optionsText = [];
+
+        for (let i = 0; i < Math.min(lines.length, 5); i++) {
+          const line = lines[i];
+          const emoji = emojiMap[i];
+          if (line.startsWith(emoji)) {
+            optionEmojis.push(emoji);
+            optionsText.push(line.replace(emoji, "").trim());
+          } else {
+            // fallback: use first token as option text
+            optionEmojis.push(emoji);
+            optionsText.push(line);
+          }
+        }
+
+        // tally reactions
+        const reactionCounts = [];
+        for (let i = 0; i < optionEmojis.length; i++) {
+          const emoji = optionEmojis[i];
+          const reaction = targetMessage.reactions.cache.get(emoji);
+          // reaction.count includes the bot's own reaction; subtract 1 if the bot reacted
+          let count = reaction ? reaction.count : 0;
+          if (reaction) {
+            // if the bot reacted, subtract 1
+            const botReacted = reaction.users.cache.has(client.user.id);
+            if (botReacted) count = Math.max(0, count - 1);
+            else {
+              // ensure users are cached by fetching reaction users (best-effort)
+              try {
+                const users = await reaction.users.fetch().catch(() => null);
+                if (users) {
+                  const filtered = users.filter(u => u.id !== client.user.id);
+                  count = filtered.size;
+                }
+              } catch {}
+            }
+          }
+          reactionCounts.push(count);
+        }
+
+        // prepare results text
+        const resultLines = optionsText.map((text, i) => {
+          return `${optionEmojis[i]} ${text} — **${reactionCounts[i] || 0}** vote(s)`;
+        }).join("\n");
+
+        const resultsEmbed = new EmbedBuilder()
+          .setTitle("📊 Poll Results")
+          .setDescription(resultLines)
+          .setColor(BROADCAST_COLOR)
+          .setFooter({ text: `Poll from ${targetMessage.author ? targetMessage.author.tag : 'bot message'}` });
+
+        return await interaction.editReply({ embeds: [resultsEmbed] });
+      } catch (e) {
+        console.error("Error computing poll results:", e);
+        return await interaction.editReply("❌ Failed to compute poll results.");
+      }
     }
 
   } catch (err) {
