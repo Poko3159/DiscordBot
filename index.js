@@ -1,116 +1,35 @@
 // index.js
+require('dotenv').config(); // load .env in dev
 const express = require("express");
-const { DateTime } = require("luxon");
-const {
-  Client,
-  GatewayIntentBits,
-  REST,
-  Routes,
-  SlashCommandBuilder
-} = require("discord.js");
-const OpenAI = require('openai');
+// DateTime removed (unused)
+// const { DateTime } = require("luxon");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const OpenAI = require("openai");
 const axios = require("axios");
 const fs = require("fs");
 
-const { safeDefer, safeReplyOrFollow, safeEdit } = require("./safe-interaction");
-
-// --- Inline AI adapter (Responses API uses input) ---
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-const PREFERRED_MODEL = process.env.PREFERRED_MODEL || "gpt-5";
-const FALLBACK_MODEL = process.env.FALLBACK_MODEL || "gpt-3.5-turbo";
-const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS || "25000", 10);
-
-function _isResponsesAPI(client) {
-  return !!client.responses && typeof client.responses.create === 'function';
-}
-function _isChatCompletionsAPI(client) {
-  return !!client.chat && client.chat.completions && typeof client.chat.completions.create === 'function';
+// fail early if required env vars missing
+if (!process.env.DISCORD_TOKEN || !process.env.OPENAI_API_KEY) {
+  console.error("Missing required environment variables. Ensure DISCORD_TOKEN and OPENAI_API_KEY are set.");
+  process.exit(1);
 }
 
-async function _callResponsesAPI(model, messages, timeoutMs) {
-  const call = async () => {
-    // Responses API uses `input` not `messages`
-    const res = await openai.responses.create({
-      model,
-      input: messages
-    });
-    // robust extraction
-    const content =
-      res?.output_text ??
-      res?.output?.[0]?.content?.[0]?.text ??
-      res?.output?.[0]?.text ??
-      null;
-    return { raw: res, content };
-  };
-  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('AI request timeout')), timeoutMs));
-  return Promise.race([call(), timeout]);
-}
-
-async function _callChatCompletionsAPI(model, messages, timeoutMs) {
-  const call = async () => {
-    const res = await openai.chat.completions.create({
-      model,
-      messages
-    });
-    const content = res?.choices?.[0]?.message?.content ?? null;
-    return { raw: res, content };
-  };
-  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('AI request timeout')), timeoutMs));
-  return Promise.race([call(), timeout]);
-}
-
-async function requestAI(messages, opts = {}) {
-  const models = [PREFERRED_MODEL, FALLBACK_MODEL];
-  const timeout = typeof opts.timeout === 'number' ? opts.timeout : AI_TIMEOUT_MS;
-
-  for (const model of models) {
-    try {
-      if (_isResponsesAPI(openai)) {
-        const out = await _callResponsesAPI(model, messages, timeout);
-        if (out?.content) return { content: out.content, modelUsed: model, raw: out.raw };
-      } else if (_isChatCompletionsAPI(openai)) {
-        const out = await _callChatCompletionsAPI(model, messages, timeout);
-        if (out?.content) return { content: out.content, modelUsed: model, raw: out.raw };
-      } else {
-        throw new Error('OpenAI SDK surface not detected: neither responses.create nor chat.completions.create available');
-      }
-    } catch (err) {
-      const code = err?.code ?? err?.rawError?.code ?? null;
-      const status = err?.status ?? err?.response?.status ?? null;
-      const name = err?.name;
-      const isRetryable = status === 429 || (code >= 500 && code < 600) || name === 'AbortError' || err?.message === 'AI request timeout';
-
-      console.warn(`AI request to ${model} failed`, { code, status, name, message: err?.message });
-
-      if (!isRetryable) {
-        return { error: err };
-      }
-      // else try next model
-    }
-  }
-
-  return { error: new Error('All AI models failed or returned no content') };
-}
-// --- end inline AI adapter ---
-
-// HTTP keep-alive for Render/hosts
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get("/", function (req, res) { res.send("Bot is alive!"); });
 app.listen(PORT, "0.0.0.0", function () { console.log("Server is running on port " + PORT); });
 
-// Discord client
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
 });
 
-// Clash of Clans config
-const COC_API_KEY = process.env.COC_API_KEY;
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+const COC_API_KEY = process.env.COC_API_KEY || "";
 const COC_BASE_URL = "https://api.clashofclans.com/v1";
 const REMINDER_FILE = "./reminders.json";
 
-// === Reminder Storage ===
+// --- Reminders storage ---
 function loadReminders() {
   try {
     if (!fs.existsSync(REMINDER_FILE)) return {};
@@ -118,357 +37,175 @@ function loadReminders() {
     if (!raw || !raw.trim()) return {};
     return JSON.parse(raw);
   } catch (err) {
-    console.error("Failed to load/parse reminders file, returning empty reminders:", err);
+    console.error("Failed to load reminders:", err);
     return {};
   }
 }
 
 function saveReminders(data) {
   try {
-    fs.writeFileSync(REMINDER_FILE, JSON.stringify(data, null, 2));
+    fs.writeFileSync(REMINDER_FILE, JSON.stringify(data, null, 2), "utf8");
   } catch (err) {
-    console.error("Failed to save reminders file:", err);
+    console.error("Failed to save reminders:", err);
   }
 }
 
-function rescheduleReminders() {
-  const reminders = loadReminders();
-  const now = Date.now();
-
-  for (const userId in reminders) {
-    if (!Array.isArray(reminders[userId])) continue;
-    for (const reminder of reminders[userId]) {
-      const delay = (reminder && reminder.time ? reminder.time : 0) - now;
-      if (delay <= 0) {
-        deliverReminder(userId, reminder).catch(err => console.error('deliverReminder immediate error', err));
-      } else {
-        setTimeout(function () {
-          deliverReminder(userId, reminder).catch(err => console.error('deliverReminder timeout error', err));
-        }, delay);
-      }
-    }
-  }
-}
-
-async function deliverReminder(userId, reminder) {
+async function deliverReminder(userId, message) {
   try {
     const user = await client.users.fetch(userId);
     if (!user) throw new Error("User not found");
-    await user.send("🔔 Reminder: " + reminder.message);
+    await user.send("🔔 Reminder: " + message);
 
     const reminders = loadReminders();
     if (reminders[userId]) {
-      reminders[userId] = reminders[userId].filter(function (r) { return r.id !== reminder.id; });
+      reminders[userId] = reminders[userId].filter(r => r.message !== message);
       if (reminders[userId].length === 0) delete reminders[userId];
       saveReminders(reminders);
     }
   } catch (err) {
     const isUnknown = err && (err.code === 10013 || (err.rawError && err.rawError.code === 10013));
-    if (isUnknown) {
+    if (!isUnknown) console.error("Failed to deliver reminder to " + userId + ":", err);
+    else {
       console.warn("Removing reminders for unknown user " + userId);
       const reminders = loadReminders();
       if (reminders[userId]) {
         delete reminders[userId];
         saveReminders(reminders);
       }
-    } else {
-      console.error("Failed to deliver reminder to " + userId + ":", err);
     }
   }
 }
 
-// === Helper Functions ===
+function rescheduleReminders() {
+  const reminders = loadReminders();
+  const now = Date.now();
+  for (const userId in reminders) {
+    if (!Array.isArray(reminders[userId])) continue;
+    for (const reminder of reminders[userId]) {
+      const time = Number(reminder && reminder.time) || 0;
+      const delay = time - now;
+      if (delay <= 0) {
+        // deliver immediately (do not await)
+        deliverReminder(userId, reminder.message).catch(() => {});
+      } else {
+        setTimeout(() => {
+          deliverReminder(userId, reminder.message).catch(() => {});
+        }, delay);
+      }
+    }
+  }
+}
+
+// --- Helper: Clash of Clans ---
 async function getPlayerInfo(tag) {
-  var sanitized = tag.replace("#", "");
+  const sanitized = (tag || "").replace("#", "");
   try {
-    var res = await axios.get(COC_BASE_URL + "/players/%23" + sanitized, {
+    const res = await axios.get(COC_BASE_URL + "/players/%23" + sanitized, {
       headers: { Authorization: "Bearer " + COC_API_KEY }
     });
     return res.data;
   } catch (e) {
-    console.error('getPlayerInfo error', e?.response?.status, e?.message);
     return { error: "Error fetching player data." };
   }
 }
 
 async function getClanInfo(tag) {
-  var sanitized = tag.replace("#", "");
+  const sanitized = (tag || "").replace("#", "");
   try {
-    var res = await axios.get(COC_BASE_URL + "/clans/%23" + sanitized, {
+    const res = await axios.get(COC_BASE_URL + "/clans/%23" + sanitized, {
       headers: { Authorization: "Bearer " + COC_API_KEY }
     });
     return res.data;
   } catch (e) {
-    console.error('getClanInfo error', e?.response?.status, e?.message);
     return { error: "Error fetching clan data." };
   }
 }
 
-async function getTopClans() {
+// --- Minimal AI call wrapper (keeps compile-time safe) ---
+async function askAI(prompt) {
   try {
-    var res = await axios.get(COC_BASE_URL + "/locations/global/rankings/clans", {
-      headers: { Authorization: "Bearer " + COC_API_KEY }
+    const res = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }]
     });
-    return res.data.items.slice(0, 5);
+    return res.choices && res.choices[0] && res.choices[0].message ? res.choices[0].message.content : "No response";
   } catch (e) {
-    console.error('getTopClans error', e?.response?.status, e?.message);
-    return { error: "Error fetching leaderboard." };
+    console.error("AI error:", e);
+    return "AI error.";
   }
 }
 
-async function getClanWarData(tag) {
-  var sanitized = tag.replace("#", "");
-  try {
-    var res = await axios.get(COC_BASE_URL + "/clans/%23" + sanitized + "/currentwar", {
-      headers: { Authorization: "Bearer " + COC_API_KEY }
-    });
-    return res.data;
-  } catch (e) {
-    console.error('getClanWarData error', e?.response?.status, e?.message);
-    return { error: "Error fetching war data." };
-  }
-}
-
-function playRps(choice) {
-  var rpsChoices = ["rock", "paper", "scissors"];
-  var bot = rpsChoices[Math.floor(Math.random() * rpsChoices.length)];
-  if (choice === bot) return "It's a tie! We both chose " + bot + ".";
-  if ((choice === "rock" && bot === "scissors") || (choice === "paper" && bot === "rock") || (choice === "scissors" && bot === "paper")) {
-    return "You win! I chose " + bot + ".";
-  }
-  return "I win! I chose " + bot + ".";
-}
-
-// === Bot Ready ===
-client.once("ready", async function () {
+// --- Bot ready / commands registration ---
+client.once("ready", async () => {
   console.log("✅ Logged in as " + (client.user ? client.user.tag : "unknown") + "!");
 
-  var commands = [
+  const commands = [
     new SlashCommandBuilder().setName("ping").setDescription("Check if the bot is alive."),
-    new SlashCommandBuilder().setName("help").setDescription("List all available commands."),
     new SlashCommandBuilder().setName("player").setDescription("Get info about a player.")
-      .addStringOption(function (opt) { return opt.setName("tag").setDescription("Player tag").setRequired(true); }),
+      .addStringOption(opt => opt.setName("tag").setDescription("Player tag").setRequired(true)),
     new SlashCommandBuilder().setName("clan").setDescription("Get info about a clan.")
-      .addStringOption(function (opt) { return opt.setName("tag").setDescription("Clan tag").setRequired(true); }),
-    new SlashCommandBuilder().setName("leaderboard").setDescription("Get top 5 global clans."),
-    new SlashCommandBuilder().setName("ask").setDescription("Ask OpenAI anything.")
-      .addStringOption(function (opt) { return opt.setName("question").setDescription("Your question").setRequired(true); })
-      .addBooleanOption(function (opt) { return opt.setName("private").setDescription("Private reply only for you"); }),
-    new SlashCommandBuilder().setName("roast").setDescription("Roast a user.")
-      .addStringOption(function (opt) { return opt.setName("target").setDescription("Target to roast"); }),
-    new SlashCommandBuilder().setName("rps").setDescription("Play Rock Paper Scissors.")
-      .addStringOption(function (opt) { return opt.setName("choice").setDescription("rock, paper, or scissors").setRequired(true); }),
-    new SlashCommandBuilder().setName("poster").setDescription("Get current war data.")
-      .addStringOption(function (opt) { return opt.setName("tag").setDescription("Clan tag").setRequired(true); }),
-    new SlashCommandBuilder().setName("remindme").setDescription("Set a personal reminder.")
-      .addStringOption(function (opt) { return opt.setName("time").setDescription("Time in minutes").setRequired(true); })
-      .addStringOption(function (opt) { return opt.setName("message").setDescription("Reminder message").setRequired(true); }),
-    new SlashCommandBuilder().setName("listreminders").setDescription("List your active reminders."),
-    new SlashCommandBuilder().setName("cancelreminder").setDescription("Cancel a reminder.")
-      .addStringOption(function (opt) { return opt.setName("id").setDescription("Reminder ID").setRequired(true); }),
-    new SlashCommandBuilder().setName("summarise").setDescription("Summarise a block of text.")
-      .addStringOption(function (opt) { return opt.setName("text").setDescription("Text to summarise").setRequired(true); }),
-    new SlashCommandBuilder().setName("replysuggest").setDescription("Suggest a reply to a message.")
-      .addStringOption(function (opt) { return opt.setName("text").setDescription("Message to reply to").setRequired(true); }),
-    new SlashCommandBuilder().setName("fixgrammar").setDescription("Fix grammar and clarity.")
-      .addStringOption(function (opt) { return opt.setName("text").setDescription("Text to improve").setRequired(true); }),
-    new SlashCommandBuilder().setName("purge").setDescription("Delete recent messages.")
-      .addIntegerOption(function (opt) { return opt.setName("count").setDescription("Number of messages to delete").setRequired(true); }),
-    new SlashCommandBuilder().setName("poll").setDescription("Create a quick poll.")
-      .addStringOption(function (opt) { return opt.setName("question").setDescription("Poll question").setRequired(true); })
-      .addStringOption(function (opt) { return opt.setName("options").setDescription("Comma-separated options").setRequired(true); })
-  ].map(function (cmd) { return cmd.toJSON(); });
+      .addStringOption(opt => opt.setName("tag").setDescription("Clan tag").setRequired(true)),
+    new SlashCommandBuilder().setName("ask").setDescription("Ask the AI a question.")
+      .addStringOption(opt => opt.setName("question").setDescription("Question").setRequired(true))
+  ].map(cmd => cmd.toJSON());
 
-  var rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+  const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
   try {
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     console.log("✅ Slash commands registered.");
-  } catch (err) {
-    console.error('Failed to register slash commands', err);
+  } catch (e) {
+    console.error("Failed to register commands:", e);
   }
 
-  rescheduleReminders(); // 🔄 Auto-reschedule reminders on startup
+  // restore reminders after login
+  rescheduleReminders();
 });
 
-// === Interaction Handling ===
-client.on("interactionCreate", async function (interaction) {
+// --- Interactions ---
+client.on("interactionCreate", async interaction => {
   if (!interaction.isChatInputCommand()) return;
-  var commandName = interaction.commandName;
-  var options = interaction.options;
+  const { commandName, options } = interaction;
 
   try {
     if (commandName === "ping") {
-      await safeReplyOrFollow(interaction, { content: "🏓 Pong! I'm alive." });
-    } else if (commandName === "help") {
-      await safeReplyOrFollow(interaction, { content: "Available commands: /ping /help /player /clan /leaderboard /ask /roast /rps /poster /remindme /listreminders /cancelreminder /summarise /replysuggest /fixgrammar /purge /poll" });
-    } else if (commandName === "player") {
-      var tag = options.getString("tag");
-      var info = await getPlayerInfo(tag);
-      if (info.error) return await safeReplyOrFollow(interaction, { content: info.error, ephemeral: true });
-      await safeReplyOrFollow(interaction, { content: "🏅 Player: " + info.name + "\n🏰 Clan: " + (info.clan && info.clan.name ? info.clan.name : "None") + "\n🏆 Trophies: " + info.trophies });
-    } else if (commandName === "clan") {
-      var tag = options.getString("tag");
-      var info = await getClanInfo(tag);
-      if (info.error) return await safeReplyOrFollow(interaction, { content: info.error, ephemeral: true });
-      await safeReplyOrFollow(interaction, { content: "🏰 Clan: " + info.name + "\n📊 Members: " + info.members + "\n🏆 Points: " + info.clanPoints });
-    } else if (commandName === "leaderboard") {
-      var clans = await getTopClans();
-      if (clans.error) return await safeReplyOrFollow(interaction, { content: clans.error, ephemeral: true });
-      var list = clans.map(function (c, i) { return (i + 1) + ". " + c.name + " - " + c.clanPoints + " pts"; }).join("\n");
-      await safeReplyOrFollow(interaction, { content: "🌍 Top 5 Global Clans:\n" + list });
-    } else if (commandName === "ask") {
-      var isPrivate = options.getBoolean("private") || false;
-      await safeDefer(interaction, { ephemeral: isPrivate });
-      var question = options.getString("question");
-      try {
-        const ai = await requestAI([{ role: "user", content: question }], { timeout: 25000, max_tokens: 512, temperature: 0.2 });
-        if (ai.error) throw ai.error;
-        var content = ai.content ?? "No response from AI.";
-        await safeEdit(interaction, { content });
-      } catch (e) {
-        console.error('OpenAI ask error', e?.message || e);
-        await safeEdit(interaction, { content: "AI request failed.", ephemeral: true });
-      }
-    } else if (commandName === "roast") {
-      var target = options.getString("target") || "you";
-      await safeDefer(interaction, { ephemeral: true });
-      const roast = await (async function () {
-        try {
-          const ai = await requestAI([
-            { role: "system", content: "You are a humorous, sarcastic AI that generates funny but non-offensive roasts." },
-            { role: "user", content: "Roast " + target + " in a funny but lighthearted way." }
-          ], { timeout: 25000, max_tokens: 180, temperature: 0.6 });
-          if (ai.error) throw ai.error;
-          return ai.content;
-        } catch (e) {
-          console.error('roastUser error', e);
-          return "Couldn't roast them this time!";
-        }
-      })();
-      await safeEdit(interaction, { content: roast });
-    } else if (commandName === "rps") {
-      var choice = options.getString("choice");
-      await safeReplyOrFollow(interaction, { content: playRps(choice) });
-    } else if (commandName === "poster") {
-      var tag = options.getString("tag");
-      var war = await getClanWarData(tag);
-      if (war.error) return await safeReplyOrFollow(interaction, { content: war.error, ephemeral: true });
-      await safeReplyOrFollow(interaction, { content: "War status: " + JSON.stringify(war) });
-    } else if (commandName === "remindme") {
-      var minutes = parseInt(options.getString("time"), 10);
-      var message = options.getString("message");
-      if (isNaN(minutes) || minutes <= 0) return await safeReplyOrFollow(interaction, { content: "Invalid time provided.", ephemeral: true });
-
-      const reminders = loadReminders();
-      const userId = interaction.user.id;
-      const id = Date.now().toString() + "-" + Math.floor(Math.random() * 10000);
-      const time = Date.now() + minutes * 60 * 1000;
-
-      if (!reminders[userId]) reminders[userId] = [];
-      reminders[userId].push({ id, time, message });
-      saveReminders(reminders);
-
-      setTimeout(() => deliverReminder(userId, { id, time, message }).catch(err => console.error('deliverReminder scheduled error', err)), Math.max(0, time - Date.now()));
-
-      await safeReplyOrFollow(interaction, { content: `Reminder set for ${minutes} minute(s). ID: ${id}`, ephemeral: true });
-    } else if (commandName === "listreminders") {
-      const reminders = loadReminders();
-      const userReminders = reminders[interaction.user.id] || [];
-      if (userReminders.length === 0) return await safeReplyOrFollow(interaction, { content: "You have no active reminders.", ephemeral: true });
-      const lines = userReminders.map(r => `${r.id} - ${DateTime.fromMillis(r.time).toLocaleString(DateTime.DATETIME_SHORT)} - ${r.message}`);
-      await safeReplyOrFollow(interaction, { content: "Your reminders:\n" + lines.join("\n"), ephemeral: true });
-    } else if (commandName === "cancelreminder") {
-      const id = options.getString("id");
-      const reminders = loadReminders();
-      const userId = interaction.user.id;
-      if (!reminders[userId]) return await safeReplyOrFollow(interaction, { content: "No reminders for you.", ephemeral: true });
-
-      const before = reminders[userId].length;
-      reminders[userId] = reminders[userId].filter(r => r.id !== id);
-      if (reminders[userId].length === 0) delete reminders[userId];
-      saveReminders(reminders);
-      const after = reminders[userId] ? reminders[userId].length : 0;
-      if (before === after) {
-        await safeReplyOrFollow(interaction, { content: "Reminder ID not found.", ephemeral: true });
-      } else {
-        await safeReplyOrFollow(interaction, { content: "Reminder cancelled.", ephemeral: true });
-      }
-    } else if (commandName === "summarise") {
-      const text = options.getString("text");
-      await safeDefer(interaction, { ephemeral: false });
-      try {
-        const ai = await requestAI([
-          { role: "system", content: "Summarise the following text concisely:" },
-          { role: "user", content: text }
-        ], { timeout: 25000, max_tokens: 400, temperature: 0.1 });
-        if (ai.error) throw ai.error;
-        await safeEdit(interaction, { content: ai.content });
-      } catch (e) {
-        console.error('summarise error', e);
-        await safeEdit(interaction, { content: "Summarisation failed.", ephemeral: true });
-      }
-    } else if (commandName === "replysuggest") {
-      const text = options.getString("text");
-      await safeDefer(interaction, { ephemeral: false });
-      try {
-        const ai = await requestAI([
-          { role: "system", content: "Suggest a short reply to the following message:" },
-          { role: "user", content: text }
-        ], { timeout: 25000, max_tokens: 180, temperature: 0.2 });
-        if (ai.error) throw ai.error;
-        await safeEdit(interaction, { content: ai.content });
-      } catch (e) {
-        console.error('replysuggest error', e);
-        await safeEdit(interaction, { content: "Suggestion failed.", ephemeral: true });
-      }
-    } else if (commandName === "fixgrammar") {
-      const text = options.getString("text");
-      await safeDefer(interaction, { ephemeral: false });
-      try {
-        const ai = await requestAI([
-          { role: "system", content: "Fix grammar and clarity for the following text:" },
-          { role: "user", content: text }
-        ], { timeout: 25000, max_tokens: 400, temperature: 0.0 });
-        if (ai.error) throw ai.error;
-        await safeEdit(interaction, { content: ai.content });
-      } catch (e) {
-        console.error('fixgrammar error', e);
-        await safeEdit(interaction, { content: "Grammar fix failed.", ephemeral: true });
-      }
-    } else if (commandName === "purge") {
-      const count = options.getInteger("count");
-      if (!interaction.memberPermissions || !interaction.memberPermissions.has || !interaction.memberPermissions.has("ManageMessages")) {
-        await safeReplyOrFollow(interaction, { content: "You do not have permission to purge messages.", ephemeral: true });
-      } else {
-        try {
-          const fetched = await interaction.channel.messages.fetch({ limit: Math.min(100, Math.max(1, count)) });
-          await interaction.channel.bulkDelete(fetched, true);
-          await safeReplyOrFollow(interaction, { content: `Deleted ${fetched.size} messages.` });
-        } catch (e) {
-          console.error('purge error', e);
-          await safeReplyOrFollow(interaction, { content: "Purge failed.", ephemeral: true });
-        }
-      }
-    } else if (commandName === "poll") {
-      const question = options.getString("question");
-      const opts = options.getString("options").split(",").map(s => s.trim()).filter(Boolean).slice(0, 10);
-      const content = `Poll: ${question}\nOptions:\n` + opts.map((o, i) => `${i + 1}. ${o}`).join("\n");
-      await safeReplyOrFollow(interaction, { content });
-    } else {
-      await safeReplyOrFollow(interaction, { content: "Unknown command.", ephemeral: true });
+      await interaction.reply("🏓 Pong! I'm alive.");
+      return;
     }
+
+    if (commandName === "player") {
+      const tag = options.getString("tag");
+      const info = await getPlayerInfo(tag);
+      if (info.error) return await interaction.reply(info.error);
+      return await interaction.reply("🏅 Player: " + info.name + "\n🏰 Clan: " + (info.clan && info.clan.name ? info.clan.name : "None") + "\n🏆 Trophies: " + info.trophies);
+    }
+
+    if (commandName === "clan") {
+      const tag = options.getString("tag");
+      const info = await getClanInfo(tag);
+      if (info.error) return await interaction.reply(info.error);
+      return await interaction.reply("🏰 Clan: " + info.name + "\n📊 Members: " + info.members + "\n🏆 Points: " + info.clanPoints);
+    }
+
+    if (commandName === "ask") {
+      await interaction.deferReply();
+      const question = options.getString("question");
+      const answer = await askAI(question);
+      return await interaction.editReply(answer);
+    }
+
   } catch (err) {
     console.error("Interaction error:", err);
     try {
-      await safeReplyOrFollow(interaction, { content: "❌ Something went wrong.", ephemeral: true });
-    } catch (inner) {
-      console.error('Failed to send error message for interaction', inner);
+      if (interaction.replied || interaction.deferred) {
+        await interaction.followUp({ content: "❌ Something went wrong.", ephemeral: true });
+      } else {
+        await interaction.reply({ content: "❌ Something went wrong.", ephemeral: true });
+      }
+    } catch (e) {
+      console.error("Failed to send error reply:", e);
     }
   }
 });
 
-// === Start Bot ===
-process.on('unhandledRejection', (reason, p) => { console.error('Unhandled Rejection at:', p, 'reason:', reason); });
-process.on('uncaughtException', (err) => { console.error('Uncaught Exception:', err); });
-
-client.login(process.env.DISCORD_TOKEN).catch(err => console.error('Failed to login', err));
+// --- Start ---
+client.login(process.env.DISCORD_TOKEN);
