@@ -366,11 +366,6 @@ client.on("interactionCreate", async function (interaction) {
       const lines = userReminders.map(r => `${r.id} - ${DateTime.fromMillis(r.time).toLocaleString(DateTime.DATETIME_SHORT)} - ${r.message}`);
       await safeReplyOrFollow(interaction, { content: "Your reminders:\n" + lines.join("\n"), ephemeral: true });
     } else if (commandName === "cancelreminder") {
-
-### Part 3 — finish of index.js (remaining interaction handling + process start)
-
-```js
-    } else if (commandName === "cancelreminder") {
       const id = options.getString("id");
       const reminders = loadReminders();
       const userId = interaction.user.id;
