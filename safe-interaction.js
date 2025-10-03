@@ -1,6 +1,4 @@
 // safe-interaction.js
-const { InteractionType } = require('discord.js');
-
 function _toFlags(opts = {}) {
   if ('ephemeral' in opts) {
     const ephemeral = !!opts.ephemeral;
@@ -12,7 +10,7 @@ function _toFlags(opts = {}) {
 
 async function safeDefer(interaction, options = {}) {
   try {
-    if (!interaction || !interaction.isRepliable?.()) return false;
+    if (!interaction || typeof interaction.isRepliable !== 'function') return false;
     if (interaction.deferred || interaction.replied) return true;
     await interaction.deferReply(_toFlags(options));
     return true;
@@ -25,7 +23,7 @@ async function safeDefer(interaction, options = {}) {
 
 async function safeReplyOrFollow(interaction, options = {}) {
   try {
-    if (!interaction || !interaction.isRepliable?.()) return;
+    if (!interaction || typeof interaction.isRepliable !== 'function') return;
     options = _toFlags(options);
     if (interaction.deferred || interaction.replied) {
       return await interaction.followUp(options);
@@ -52,7 +50,6 @@ async function safeEdit(interaction, options = {}) {
     if (interaction.deferred || interaction.replied) {
       return await interaction.editReply(_toFlags(options));
     }
-    // Not yet deferred/replied: try reply instead
     return await safeReplyOrFollow(interaction, options);
   } catch (err) {
     const code = err?.rawError?.code ?? err?.code;
