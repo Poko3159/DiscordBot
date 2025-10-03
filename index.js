@@ -8,11 +8,79 @@ const {
   Routes,
   SlashCommandBuilder
 } = require("discord.js");
+const OpenAI = require('openai');
 const axios = require("axios");
 const fs = require("fs");
 
 const { safeDefer, safeReplyOrFollow, safeEdit } = require("./safe-interaction");
-const { requestAI } = require("./ai-adapter");
+
+// --- Inline AI adapter (no separate ai-adapter.js required) ---
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+const PREFERRED_MODEL = process.env.PREFERRED_MODEL || "gpt-5";
+const FALLBACK_MODEL = process.env.FALLBACK_MODEL || "gpt-3.5-turbo";
+const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS || "25000", 10);
+
+function _isResponsesAPI(client) {
+  return !!client.responses && typeof client.responses.create === 'function';
+}
+function _isChatCompletionsAPI(client) {
+  return !!client.chat && client.chat.completions && typeof client.chat.completions.create === 'function';
+}
+
+async function _callResponsesAPI(model, messages, timeoutMs) {
+  const call = async () => {
+    const res = await openai.responses.create({ model, messages });
+    const content = res?.output?.[0]?.content?.[0]?.text ?? res?.output?.[0]?.text ?? null;
+    return { raw: res, content };
+  };
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('AI request timeout')), timeoutMs));
+  return Promise.race([call(), timeout]);
+}
+
+async function _callChatCompletionsAPI(model, messages, timeoutMs) {
+  const call = async () => {
+    const res = await openai.chat.completions.create({ model, messages });
+    const content = res?.choices?.[0]?.message?.content ?? null;
+    return { raw: res, content };
+  };
+  const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('AI request timeout')), timeoutMs));
+  return Promise.race([call(), timeout]);
+}
+
+async function requestAI(messages, opts = {}) {
+  const models = [PREFERRED_MODEL, FALLBACK_MODEL];
+  const timeout = typeof opts.timeout === 'number' ? opts.timeout : AI_TIMEOUT_MS;
+
+  for (const model of models) {
+    try {
+      if (_isResponsesAPI(openai)) {
+        const out = await _callResponsesAPI(model, messages, timeout);
+        if (out?.content) return { content: out.content, modelUsed: model, raw: out.raw };
+      } else if (_isChatCompletionsAPI(openai)) {
+        const out = await _callChatCompletionsAPI(model, messages, timeout);
+        if (out?.content) return { content: out.content, modelUsed: model, raw: out.raw };
+      } else {
+        throw new Error('OpenAI SDK surface not detected: neither responses.create nor chat.completions.create available');
+      }
+    } catch (err) {
+      const code = err?.code ?? err?.rawError?.code ?? null;
+      const status = err?.status ?? err?.response?.status ?? null;
+      const name = err?.name;
+      const isRetryable = status === 429 || (code >= 500 && code < 600) || name === 'AbortError' || err?.message === 'AI request timeout';
+
+      console.warn(`AI request to ${model} failed`, { code, status, name, message: err?.message });
+
+      if (!isRetryable) {
+        return { error: err };
+      }
+      // else try next model
+    }
+  }
+
+  return { error: new Error('All AI models failed or returned no content') };
+}
+// --- end inline AI adapter ---
 
 // HTTP keep-alive for Render/hosts
 const app = express();
@@ -207,7 +275,7 @@ client.once("ready", async function () {
     console.error('Failed to register slash commands', err);
   }
 
-  rescheduleReminders(); // 🔄 Auto-reschedule reminders on startup
+  rescheduleReminders();
 });
 
 // === Interaction Handling ===
