@@ -2,6 +2,10 @@
   "name": "discord-bot",
   "version": "1.0.0",
   "main": "index.js",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "axios": "^1.8.4",
     "discord.js": "^14.0.0",
