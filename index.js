@@ -14,7 +14,7 @@ const fs = require("fs");
 
 const { safeDefer, safeReplyOrFollow, safeEdit } = require("./safe-interaction");
 
-// --- Inline AI adapter (no separate ai-adapter.js required) ---
+// --- Inline AI adapter (Responses API uses input) ---
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const PREFERRED_MODEL = process.env.PREFERRED_MODEL || "gpt-5";
@@ -30,8 +30,17 @@ function _isChatCompletionsAPI(client) {
 
 async function _callResponsesAPI(model, messages, timeoutMs) {
   const call = async () => {
-    const res = await openai.responses.create({ model, messages });
-    const content = res?.output?.[0]?.content?.[0]?.text ?? res?.output?.[0]?.text ?? null;
+    // Responses API uses `input` not `messages`
+    const res = await openai.responses.create({
+      model,
+      input: messages
+    });
+    // robust extraction
+    const content =
+      res?.output_text ??
+      res?.output?.[0]?.content?.[0]?.text ??
+      res?.output?.[0]?.text ??
+      null;
     return { raw: res, content };
   };
   const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('AI request timeout')), timeoutMs));
@@ -40,7 +49,10 @@ async function _callResponsesAPI(model, messages, timeoutMs) {
 
 async function _callChatCompletionsAPI(model, messages, timeoutMs) {
   const call = async () => {
-    const res = await openai.chat.completions.create({ model, messages });
+    const res = await openai.chat.completions.create({
+      model,
+      messages
+    });
     const content = res?.choices?.[0]?.message?.content ?? null;
     return { raw: res, content };
   };
